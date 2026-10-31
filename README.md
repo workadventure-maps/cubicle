@@ -23,6 +23,18 @@ make             # builds cubicles.sfc
 make test        # headless gameplay and budget tests on the snes9x core
 ```
 
+## Play locally
+
+In a browser (needs WebGL and internet for EmulatorJS; 2 players on the keyboard, gamepads for 3-4):
+
+```bash
+make site
+python3 -m http.server 8000 -d _site   # then open http://localhost:8000
+```
+
+In a desktop emulator: open `cubicles.sfc` in snes9x (`flatpak install flathub com.snes9x.Snes9x`) and set
+controller port 2 to "Multitap" for players 3 and 4.
+
 ## Layout
 
 | Path | What |
@@ -34,12 +46,13 @@ make test        # headless gameplay and budget tests on the snes9x core
 | `tools/mksfx.py` | synthesizes the placeholder sound effects |
 | `tools/snes.py` | small headless libretro frontend: scripted input, Multitap, screenshots, RAM/VRAM reads |
 | `tests/smoke.py` | gameplay tests, including VBlank and frame-time budgets |
+| `web/index.html` | browser player page: the ROM in [EmulatorJS](https://emulatorjs.org), Multitap on port 2 (`make site`) |
 
 ## Credits
 
 - Characters: Woka parts designed by the WorkAdventure team (`assets/woka/`), © WorkAdventu.re, MIT.
 - Font: PVSnesLib example font by Alekmaul, zlib license, see `assets/font.LICENSE.txt`.
-- Built with [PVSnesLib](https://github.com/alekmaul/pvsneslib).
+- Built with [PVSnesLib](https://github.com/alekmaul/pvsneslib). The web page loads EmulatorJS (GPL-3.0) from its CDN.
 
 ## License
 
