@@ -10,7 +10,7 @@ own well size and rules.
 
 | Topic | Decision |
 |---|---|
-| Name | Cubicles (office cubicles are blocks). Chosen over "Tetradventure": The Tetris Company objects to "Tetr" names. Check nobody uses it before the first public push. |
+| Name | Cubicles (office cubicles are blocks). Chosen over "Tetradventure", to keep clear of the Tetris trademark. Checked on 2026-10-31: no falling-block game uses it (a freeware laser puzzle is called Cubicle). Repository: workadventure-maps/cubicle. |
 | Platform | SNES (LoROM), C with PVSnesLib, assembly only where measured. Must run on snes9x (cloud-game). |
 | Players | 1 to 4. P1 on port 1, P2 to P4 through a Multitap on port 2. |
 | Mode | Versus first: one well per player, cleared lines send junk rows. Co-op (one shared wide well) maybe later, as a second mode. |
