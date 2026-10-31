@@ -79,9 +79,9 @@
     <section>
       <h2>Controls</h2>
       <table>
-        <tr><td>Player 1</td><td><kbd>&larr;</kbd><kbd>&rarr;</kbd> move, <kbd>&darr;</kbd> faster, <kbd>&uarr;</kbd> drop, <kbd>Z</kbd> <kbd>X</kbd> turn, <kbd>Enter</kbd> join</td></tr>
-        <tr><td>Player 2</td><td><kbd>A</kbd><kbd>D</kbd> move, <kbd>S</kbd> faster, <kbd>W</kbd> drop, <kbd>F</kbd> <kbd>G</kbd> turn, <kbd>Q</kbd> join</td></tr>
-        <tr><td>Gamepads</td><td>The first gamepad is player 1, the second player 2, and so on up to 4. A and X turn one way, B and Y the other.</td></tr>
+        <tr><td>Player 1</td><td><kbd>&larr;</kbd><kbd>&rarr;</kbd> move, <kbd>&darr;</kbd> faster, <kbd>&uarr;</kbd> or <kbd>Z</kbd> turn, <kbd>X</kbd> drop, <kbd>Enter</kbd> join</td></tr>
+        <tr><td>Player 2</td><td><kbd>A</kbd><kbd>D</kbd> move, <kbd>S</kbd> faster, <kbd>W</kbd> turn, <kbd>Space</kbd> drop, <kbd>Q</kbd> join</td></tr>
+        <tr><td>Gamepads</td><td>The first gamepad is player 1, the second player 2, and so on up to 4. Up, A and X turn, B and Y drop.</td></tr>
       </table>
     </section>
     <section>
@@ -108,13 +108,13 @@
   EJS_volume = 0.5;
   // libretro device id of the snes9x Multitap: RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 0)
   EJS_defaultOptions = { 'controller-port-device-p2': '257' };
-  // Player 1 keeps the arrows, X/Z and Enter; its other default keys go to player 2.
+  // Player 1: arrows, Z = A (turn), X = B (drop) and Enter, as on the cabinet; its other default keys go to player 2.
   // Button ids: 0 B, 1 Y, 2 Select, 3 Start, 4-7 up/down/left/right, 8 A, 9 X, 10-13 L/R/L2/R2, 14-23 sticks.
   const none = { value: '' };
   EJS_defaultControls = {
-    0: { 1: none, 9: none, 10: none, 11: none, 12: none, 13: none,
+    0: { 0: { value: 'x' }, 8: { value: 'z' }, 1: none, 9: none, 10: none, 11: none, 12: none, 13: none,
          16: none, 17: none, 18: none, 19: none, 20: none, 21: none, 22: none, 23: none },
-    1: { 0: { value: 'f' }, 8: { value: 'g' }, 3: { value: 'q' },
+    1: { 0: { value: 'space' }, 3: { value: 'q' },
          4: { value: 'w' }, 5: { value: 's' }, 6: { value: 'a' }, 7: { value: 'd' } },
   };
 </script>

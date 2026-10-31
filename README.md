@@ -7,8 +7,8 @@ See [DESIGN.md](DESIGN.md).
 
 - Press **Start** to join. Alone, it's an endless score attack; a second player's Start turns it into a versus
   match. Players 2 to 4 need a Multitap in port 2 (snes9x: set port 2 to "Multitap").
-- **Left / Right** move, **Down** drops faster, **Up** drops at once, **A / X** turn clockwise, **B / Y** turn
-  counter-clockwise.
+- **Left / Right** move, **Down** drops faster, **Up**, **A** or **X** turns the piece, **B** or **Y** drops it at
+  once. On the cabinet's keyboard: arrows, **Z** turns, **X** drops.
 - Clearing 2 or more lines at once sends junk rows to every opponent. Last well standing wins the match; the
   pieces fall faster every 30 seconds. A player who doesn't touch the pad during a whole match (someone who left
   the cabinet) sits out the next one until they press Start again.

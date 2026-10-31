@@ -379,9 +379,9 @@ void draw_dirty(void)
     next_draw++;
 }
 
-u8 try_rotate(u8 p, u8 d)
+u8 try_rotate(u8 p) // clockwise
 {
-    u8 r = (prot[p] + d) & 3, s = (ptype[p] << 4) | (r << 2), k, c;
+    u8 r = (prot[p] + 1) & 3, s = (ptype[p] << 4) | (r << 2), k, c;
     for (k = 0; k < 5; k++)
     {
         c = pcol[p] + kick[k];
@@ -545,10 +545,8 @@ void update_piece(u8 p)
     u16 keys = keys_now[p], down = keys_down[p];
     u8 moved = 0, step = 0, speed;
 
-    if (down & (KEY_A | KEY_X))
-        moved = try_rotate(p, 1);
-    else if (down & (KEY_B | KEY_Y))
-        moved = try_rotate(p, 3);
+    if (down & (KEY_UP | KEY_A | KEY_X))
+        moved = try_rotate(p);
     if (keys & (KEY_LEFT | KEY_RIGHT))
     {
         if (down & (KEY_LEFT | KEY_RIGHT))
@@ -573,7 +571,7 @@ void update_piece(u8 p)
             resets[p]++;
         }
     }
-    if (down & KEY_UP) // hard drop
+    if (down & (KEY_B | KEY_Y)) // hard drop
     {
         pyy[p] = find_drop(p << 2, row_base[p] + pyy[p]) - row_base[p];
         dirty[p] = 3;

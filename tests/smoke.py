@@ -63,7 +63,7 @@ def start(players, seq=None):
 def locks_at_the_bottom():
     g = start([0], seq=PIECE_O)
     assert g.peek('phase') == W_FALL
-    g.press(0, 'up', frames=1)
+    g.press(0, 'b', frames=1)
     r = g.rows(0)
     assert r[20] == r[21] == WALLS | O_COLS, [hex(v) for v in r[18:22]]
     # solo well: first cell on screen column 13; board row 21 is screen row 25
@@ -74,7 +74,7 @@ def clears_and_scores():
     g = start([0], seq=PIECE_O)
     g.set_row(0, 20, FULL ^ O_COLS)
     g.set_row(0, 21, FULL ^ O_COLS)
-    g.press(0, 'up', frames=1)
+    g.press(0, 'b', frames=1)
     g.run(30)
     assert g.peek16('lines') == 2 and g.peek16('score_lo') == 40, (g.peek16('lines'), g.peek16('score_lo'))
     assert g.rows(0)[2:22] == [WALLS] * 20
@@ -84,9 +84,9 @@ def junk_goes_to_opponents():
     g = start([0, 1, 2], seq=PIECE_O)
     g.set_row(0, 20, FULL ^ O_COLS)
     g.set_row(0, 21, FULL ^ O_COLS)
-    g.press(0, 'up', frames=1)          # P1 clears 2 lines: 1 junk row to each opponent
+    g.press(0, 'b', frames=1)          # P1 clears 2 lines: 1 junk row to each opponent
     assert g.peek('pending', 4) == [0, 1, 1, 0], g.peek('pending', 4)
-    g.press(1, 'up', frames=1)          # P2 locks, then the junk rises under its piece
+    g.press(1, 'b', frames=1)          # P2 locks, then the junk rises under its piece
     g.run(12)
     r = g.rows(1)
     assert bin(r[21] & CELLS).count('1') == 6, hex(r[21])
@@ -96,13 +96,13 @@ def junk_goes_to_opponents():
 
 def i_piece_turns_flat_against_the_wall():
     g = start([0], seq=PIECE_I)
-    g.press(0, 'a', frames=1)          # upright, in box column 2
+    g.press(0, 'up', frames=1)         # Up turns too: upright, in box column 2
     for _ in range(6):
         g.press(0, 'left', frames=1)
         g.run(1)
     assert (g.peek('prot'), g.peek('pcol')) == (1, 1)   # against the left wall
-    g.press(0, 'b', frames=1)
-    assert (g.peek('prot'), g.peek('pcol')) == (0, 3), (g.peek('prot'), g.peek('pcol'))  # flat on columns 0-3
+    g.press(0, 'a', frames=1)
+    assert (g.peek('prot'), g.peek('pcol')) == (2, 3), (g.peek('prot'), g.peek('pcol'))  # flat on columns 0-3
 
 
 def challenger_interrupts_solo():
@@ -138,7 +138,7 @@ def top_out_goes_back_to_title():
     g = start([0], seq=PIECE_O)
     for y in range(4, 22):
         g.set_row(0, y, FULL ^ (1 << 9))  # nearly full well, column 6 open: no line to clear
-    g.press(0, 'up', frames=1)            # lands on the top rows; the next O can't spawn
+    g.press(0, 'b', frames=1)            # lands on the top rows; the next O can't spawn
     g.until(RESULT, 60)
     g.until(TITLE, 200)
     assert g.peek('inmatch', 4) == [0, 0, 0, 0]
@@ -156,7 +156,7 @@ def sound():
     g = start([0])
     g.run(30)
     assert g.loudness == 0
-    g.press(0, 'up', frames=3)
+    g.press(0, 'b', frames=3)
     assert g.loudness > 1000, g.loudness  # lock
 
 
@@ -206,7 +206,7 @@ def four_clears_at_once():
         g.set_row(p, 21, FULL ^ O_COLS)
     lag, worst = g.peek16('lag_frame_counter'), 0
     for p in range(4):
-        g.held[p] = {'up'}
+        g.held[p] = {'b'}
     for _ in range(60):
         g.run(1)
         for p in range(4):
@@ -228,9 +228,9 @@ def random_battle():
     for frame in range(4000):
         if frame % 8 == 0:
             for p in range(4):
-                g.held[p] = {rng.choice(['left', 'right', 'a', 'b', 'down', 'x'])} - {'x'}
+                g.held[p] = {rng.choice(['left', 'right', 'up', 'a', 'down', 'none'])} - {'none'}
                 if rng.random() < 0.15:
-                    g.held[p].add('up')
+                    g.held[p].add('b')
         if frame % 150 == 0 and g.peek('state') == PLAY:
             g.poke('pending', [rng.randrange(4) for _ in range(4)])
         g.run(1)
