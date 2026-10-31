@@ -1,0 +1,24 @@
+# toolchain and emulator core (tools/setup.sh)
+.tools/
+
+# generated assets
+gfx/
+sfx/
+
+# build output
+*.sfc
+*.sym
+*.symfull
+*.obj
+*.log
+*.ps
+linkfile
+hdr.asm
+src/main.asm
+*.mp4
+
+# python
+__pycache__/
+
+# GitHub Pages output
+_site/
