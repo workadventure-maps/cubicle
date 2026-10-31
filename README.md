@@ -10,8 +10,8 @@ See [DESIGN.md](DESIGN.md).
 - **Left / Right** move, **Down** drops faster, **Up** drops at once, **A / X** turn clockwise, **B / Y** turn
   counter-clockwise.
 - Clearing 2 or more lines at once sends junk rows to every opponent. Last well standing wins the match; the
-  pieces fall faster every 30 seconds. A player who doesn't touch the pad for 15 seconds is out until they
-  press Start again.
+  pieces fall faster every 30 seconds. A player who doesn't touch the pad during a whole match (someone who left
+  the cabinet) sits out the next one until they press Start again.
 
 ## Build
 

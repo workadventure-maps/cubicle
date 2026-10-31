@@ -115,16 +115,21 @@ def challenger_interrupts_solo():
     assert g.peek('inmatch', 4) == [1, 1, 0, 0] and g.peek('nplay') == 2
 
 
-def away_player_is_out():
+def idle_player_stays_in():
+    # nobody is put out for not touching the pad: 20 seconds later both wells still play
     g = start([0, 1])
-    for i in range(1000):  # P1 keeps playing, P2 never touches the pad
-        if i % 30 == 0:
-            g.held[0] = {'left'} if i % 60 == 0 else set()
-        g.run(1)
-        if g.peek('state') == RESULT:
-            break
-    assert g.peek('away', 4) == [0, 1, 0, 0] and g.peek('wins', 4) == [1, 0, 0, 0]
-    assert 890 <= i <= 910, i  # 15 seconds
+    g.run(1200)
+    assert g.peek('state') == PLAY and g.peek('phase', 2) == [W_FALL, W_FALL], g.peek('phase', 2)
+
+
+def untouched_pad_sits_out_next_match():
+    # P2 never touches the pad (its player left the cabinet): its well fills up, and it sits out the next match
+    g = start([0, 1], seq=PIECE_O)
+    g.press(0, 'left', frames=2)
+    for y in range(4, 22):
+        g.set_row(1, y, FULL ^ (1 << 9))  # P2's well nearly full, no line to clear
+    g.until(RESULT, 400)
+    assert g.peek('wins', 4) == [1, 0, 0, 0]
     g.until(COUNTDOWN, 200)
     assert g.peek('inmatch', 4) == [1, 0, 0, 0] and g.peek('nplay') == 1  # P1 plays on alone
 
@@ -253,7 +258,8 @@ if __name__ == '__main__':
     junk_goes_to_opponents()
     i_piece_turns_flat_against_the_wall()
     challenger_interrupts_solo()
-    away_player_is_out()
+    idle_player_stays_in()
+    untouched_pad_sits_out_next_match()
     top_out_goes_back_to_title()
     speed_rises_in_versus()
     sound()

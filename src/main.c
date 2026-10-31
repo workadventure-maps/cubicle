@@ -89,7 +89,6 @@ const u8 kick[5] = {0, 255, 1, 254, 2};
 #define SOFT_DROP 2       // frames per row while Down is held
 #define CLEAR_FRAMES 20   // full rows flash before they collapse
 #define SPAWN_FRAMES 6    // pause between a lock and the next piece
-#define AWAY_FRAMES 900   // 15 seconds without input: the player is away
 #define SEQ_LEN 252       // 36 shuffled sets of the 7 pieces, shared by all players in a match
 #define MAX_JUNK 20
 // fall speed in frames per row: versus every 30 seconds, solo every 10 lines
@@ -106,7 +105,7 @@ const u8 bit_count[16] = {0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
 #define ST_ENDING 4 // the match just ended: the result text waits for the next frame (text is slow)
 // well phases; a well is alive from W_FALL up
 #define W_OFF 0    // not in the match, or out of it
-#define W_DYING 1  // topped out or away, waiting to gray out
+#define W_DYING 1  // topped out, waiting to gray out
 #define W_FALL 2   // a piece is falling
 #define W_SETTLE 3 // after a lock: rows collapse, junk rises, next piece
 #define W_LOCK 4   // landed: locks on the first frame with room
@@ -167,12 +166,12 @@ u8 pending[4];       // junk rows on their way
 u8 cleared[4];       // rows cleared by the last lock, still to collapse
 u8 seqi[4];
 u8 seq[SEQ_LEN];
-u16 idle[4];
 u16 keys_now[4], keys_down[4], keys_before[4]; // presses seen by the game, so a late frame can't lose one
 u8 cheer[4];         // frames left of the Woka's hop after a clear
 u8 high[4];          // highest filled board row (the Woka panics when it gets close to the top)
 
-u8 inmatch[4], ready[4], away[4], wins[4];
+u8 inmatch[4], ready[4], wins[4];
+u8 touched[4]; // pressed something since the match started: who didn't sits out the next one (left the cabinet)
 u8 nplay, npads;
 u8 state;
 u16 state_timer;
@@ -420,7 +419,7 @@ u8 count_alive(void)
     return n;
 }
 
-// a topped-out or away player's well grays out on a later frame (heavy)
+// a topped-out player's well grays out on a later frame (heavy)
 void top_out(u8 p)
 {
     phase[p] = W_DYING;
@@ -693,7 +692,7 @@ void to_title(void)
     {
         inmatch[p] = 0;
         ready[p] = 0;
-        away[p] = 0;
+        touched[p] = 0;
         phase[p] = W_OFF;
     }
     state = ST_TITLE;
@@ -765,9 +764,9 @@ void start_match(void)
     nplay = 0;
     for (p = 0; p < 4; p++)
     {
-        inmatch[p] = ready[p] || (inmatch[p] && away[p] == 0);
+        inmatch[p] = ready[p] || (inmatch[p] && touched[p]);
         ready[p] = 0;
-        away[p] = 0;
+        touched[p] = 0;
         nplay += inmatch[p];
     }
     clear_screen();
@@ -800,7 +799,6 @@ void start_match(void)
         phase[p] = W_SETTLE;
         wait[p] = 0;
         seqi[p] = 0;
-        idle[p] = 0;
         das[p] = 1;
         high[p] = BOTTOM + 1;
         player_label(col0[p], LABEL_ROW, p);
@@ -875,7 +873,9 @@ void check_joins(void)
         keys_now[p] = padsCurrent(p);
         keys_down[p] = keys_now[p] & ~keys_before[p];
         keys_before[p] = keys_now[p];
-        if ((keys_down[p] & KEY_START) && !ready[p] && (state == ST_TITLE || inmatch[p] == 0 || away[p]))
+        if (keys_now[p])
+            touched[p] = 1;
+        if ((keys_down[p] & KEY_START) && !ready[p] && (state == ST_TITLE || inmatch[p] == 0))
         {
             if (!seeded)
             {
@@ -883,7 +883,6 @@ void check_joins(void)
                 seeded = 1;
             }
             ready[p] = 1;
-            away[p] = 0;
             joined = 1;
             sfx(SFX_JOIN);
         }
@@ -956,16 +955,6 @@ void update_game(void)
         {
             if (!inmatch[p])
                 continue;
-            if (alive(p))
-            {
-                if (keys_now[p])
-                    idle[p] = 0;
-                else if (++idle[p] == AWAY_FRAMES)
-                {
-                    away[p] = 1;
-                    top_out(p);
-                }
-            }
             update_well(p);
             if (cheer[p])
                 cheer[p]--;
@@ -992,7 +981,7 @@ void update_game(void)
         {
             n = 0;
             for (p = 0; p < 4; p++)
-                n += ready[p] || (inmatch[p] && away[p] == 0);
+                n += ready[p] || (inmatch[p] && touched[p]);
             if (n)
                 start_match();
             else
