@@ -3,6 +3,8 @@
 A falling-block versus game for the Super Nintendo, for 1 to 4 players around a WorkAdventure arcade cabinet.
 See [DESIGN.md](DESIGN.md).
 
+![The title screen, and a 4-player match: junk rows under every stack, pieces falling with their landing outline](docs/screenshot.png)
+
 ## Play
 
 In your browser: https://workadventure-maps.github.io/cubicle/ (built from `main` by GitHub Actions).
