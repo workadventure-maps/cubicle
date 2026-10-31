@@ -1,0 +1,59 @@
+# Builds the ROM and runs the gameplay tests on every push and pull request.
+# On main, also publishes the web player (web/index.html) and the ROM on GitHub Pages.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pip install pillow numpy
+      # PVSnesLib and the snes9x core (a nightly build: the cache also keeps the tests on one core version)
+      - uses: actions/cache@v6
+        with:
+          path: .tools
+          key: tools-${{ hashFiles('tools/setup.sh') }}
+      - run: tools/setup.sh
+      - run: make test
+      - run: make site
+      - name: Link the page to this commit
+        run: >
+          sed -i "s|<!--build-->|, built from
+          <a href=\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA\">${GITHUB_SHA::7}</a>|"
+          _site/index.html
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cubicles
+          path: cubicles.sfc
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

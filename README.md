@@ -5,6 +5,8 @@ See [DESIGN.md](DESIGN.md).
 
 ## Play
 
+In your browser: https://workadventure-maps.github.io/cubicle/ (built from `main` by GitHub Actions).
+
 - Press **Start** to join. Alone, it's an endless score attack; a second player's Start turns it into a versus
   match. Players 2 to 4 need a Multitap in port 2 (snes9x: set port 2 to "Multitap").
 - **Left / Right** move, **Down** drops faster, **Up**, **A** or **X** turns the piece, **B** or **Y** drops it at
@@ -47,6 +49,7 @@ controller port 2 to "Multitap" for players 3 and 4.
 | `tools/snes.py` | small headless libretro frontend: scripted input, Multitap, screenshots, RAM/VRAM reads |
 | `tests/smoke.py` | gameplay tests, including VBlank and frame-time budgets |
 | `web/index.html` | browser player page: the ROM in [EmulatorJS](https://emulatorjs.org), Multitap on port 2 (`make site`) |
+| `.github/workflows/build.yml` | builds and tests every push; publishes the page and the ROM from `main` |
 
 ## Credits
 
