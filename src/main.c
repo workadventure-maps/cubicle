@@ -920,7 +920,7 @@ void update_game(void)
             {
                 buf[0] = '0' + (state_timer + 59) / 60;
                 buf[1] = 0;
-                center(TITLE_PROMPT_ROW, 0, "GET READY");
+                center(TITLE_PROMPT_ROW, 0, "GET READY  "); // centered with room for " 3": the count on column 21
                 text(21, TITLE_PROMPT_ROW, 0, buf);
             }
         }

@@ -155,6 +155,27 @@ def sound():
     assert g.loudness > 1000, g.loudness  # lock
 
 
+def wokas_match_art():
+    # each Woka above its well is its hand-drawn frame from assets/sprites (exact colors, one palette per player)
+    import tempfile
+    from PIL import Image
+    g = start([0, 1, 2, 3])
+    assert g.peek('cheer', 4) == [0, 0, 0, 0] and g.peek('phase', 4) == [W_FALL] * 4  # standing, facing down
+    with tempfile.NamedTemporaryFile(suffix='.png') as f:
+        g.screenshot(f.name)
+        screen = Image.open(f.name).convert('RGB').point(lambda v: v >> 3 << 3)
+    oam = g.peek('oamMemory', 16)
+    for p in range(4):
+        x, y = oam[4 * p], oam[4 * p + 1]
+        art = Image.open(os.path.join(ROOT, 'assets', 'sprites', f'p{p + 1}.png')).convert('RGBA').crop((21, 0, 42, 21))
+        for ay in range(21):
+            for ax in range(21):
+                r, gg, b, a = art.getpixel((ax, ay))
+                if a:  # the 21x21 frame sits at (5, 10) in the 32x32 sprite
+                    assert screen.getpixel((x + 5 + ax, y + 10 + ay)) == (r >> 3 << 3, gg >> 3 << 3, b >> 3 << 3), \
+                        f'P{p + 1} pixel ({ax},{ay})'
+
+
 def check_screen(g):
     """Once pending updates are flushed, the BG maps in VRAM must equal the game's RAM copies.
     A transfer that overran VBlank would leave stale tiles behind."""
@@ -236,6 +257,7 @@ if __name__ == '__main__':
     top_out_goes_back_to_title()
     speed_rises_in_versus()
     sound()
+    wokas_match_art()
     four_clears_at_once()
     random_battle()
     print('ok')

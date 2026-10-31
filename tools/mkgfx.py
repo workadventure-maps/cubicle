@@ -4,8 +4,8 @@
   blocks_b.png  BG palette 3: blank, blocks and outlines of pieces 4-6, junk block
   walls.png     BG palette 4: cubicle partitions between the wells, their caps, the floor
   font.png      96 ASCII glyphs (32..127) with a drop shadow, 4 colors (2bpp)
-  p1..p4.png    Woka sheets, 8 frames of 32x32 (all in VRAM at once): 2/3 size standing facing down, left,
-                right, up; full size walking facing the camera (step, stand, step); 2/3 size step facing down.
+  p1..p4.png    Woka sheets, 8 frames of 32x32 (all in VRAM at once): 21x21 standing facing down, left, right,
+                up; full size walking facing the camera (step, stand, step); 21x21 step facing down.
 
 Each PNG is 16 tiles of 8x8 in a row; tile order must match the T_* constants in src/main.c.
 
@@ -126,7 +126,7 @@ PLAYERS = [
     ('Character_bodyh', 'Character_eye1', 'Character_outfit2', 'character_hair28d'),   # P3 green jacket
     ('Character_bodyb', 'Character_eye1', 'Character_outfit25', 'character_hair33b'),  # P4 pink top, ginger
 ]
-WOKA = 21  # 2/3 of the 32 px Woka frame
+WOKA = 21  # in-game frames: 2/3 of the 32 px Woka frame
 
 
 def woka_frame(p, row, col):
@@ -137,37 +137,41 @@ def woka_frame(p, row, col):
     return im
 
 
-def to_indexed(rgba, ncolors=15):
-    """Hard alpha, quantize the opaque pixels to ncolors, index 0 = transparent. No palette padding."""
-    alpha = rgba.getchannel('A').point(lambda v: 255 if v > 110 else 0)
-    q = rgba.convert('RGB').quantize(ncolors, method=Image.MEDIANCUT)
-    out = Image.new('P', rgba.size, 0)
-    out.putpalette(list(KEY) + q.getpalette()[:ncolors * 3])
-    src, a, dst = q.load(), alpha.load(), out.load()
-    for y in range(rgba.height):
-        for x in range(rgba.width):
-            if a[x, y]:
-                dst[x, y] = src[x, y] + 1
-    return out
+def player_sheet(n, p):
+    """In-game frames: hand-drawn 21x21 frames in assets/sprites/p<n>.png (63x84, laid out like a Woka sheet: rows
+    down, left, right, up; columns step, stand, step), from Bombadventure: shrinking the Woka automatically blurs
+    it. Title frames: the Woka at full size."""
+    small = Image.open(os.path.join(ASSETS, 'sprites', f'p{n}.png')).convert('RGBA')
 
-
-def player_sheet(p):
-    frames = []
-    for row, col in ((0, 1), (1, 1), (2, 1), (3, 1)):  # Woka sheet rows: down, left, right, up; col 1 stands
-        f = woka_frame(p, row, col).resize((WOKA, WOKA), Image.LANCZOS)
+    def frame(row, col):
         cell = Image.new('RGBA', (32, 32))
-        cell.alpha_composite(f, ((32 - WOKA) // 2, 32 - WOKA - 1))
-        frames.append(cell)
-    for col in range(3):
-        frames.append(woka_frame(p, 0, col))
-    f = woka_frame(p, 0, 0).resize((WOKA, WOKA), Image.LANCZOS)
-    cell = Image.new('RGBA', (32, 32))
-    cell.alpha_composite(f, ((32 - WOKA) // 2, 32 - WOKA - 1))
-    frames.append(cell)
+        cell.alpha_composite(small.crop((col * WOKA, row * WOKA, col * WOKA + WOKA, row * WOKA + WOKA)),
+                             ((32 - WOKA) // 2, 32 - WOKA - 1))  # feet one pixel above the bottom
+        return cell
+
+    frames = [frame(row, 1) for row in range(4)]
+    frames += [woka_frame(p, 0, col) for col in range(3)]
+    frames.append(frame(0, 0))
     sheet = Image.new('RGBA', (32, 32 * len(frames)))
     for i, f in enumerate(frames):
         sheet.alpha_composite(f, (0, 32 * i))
-    return to_indexed(sheet)
+    # the hand-picked colors are the palette, exactly; the title frames use the nearest of them
+    return to_indexed_with(sheet, sorted(set(c[:3] for c in small.get_flattened_data() if c[3])))
+
+
+def to_indexed_with(rgba, colors):
+    """Hard alpha, every opaque pixel mapped to the nearest of the given colors (15 at most), index 0 = transparent."""
+    assert len(colors) <= 15, f'{len(colors)} colors, 15 max'
+    out = Image.new('P', rgba.size, 0)
+    out.putpalette(list(KEY) + [v for c in colors for v in c])
+    src, dst = rgba.load(), out.load()
+    for y in range(rgba.height):
+        for x in range(rgba.width):
+            r, g, b, a = src[x, y]
+            if a > 110:
+                dst[x, y] = 1 + min(range(len(colors)),
+                                    key=lambda i: (colors[i][0] - r) ** 2 + (colors[i][1] - g) ** 2 + (colors[i][2] - b) ** 2)
+    return out
 
 
 os.makedirs(OUT, exist_ok=True)
@@ -176,4 +180,4 @@ blocks(PIECES[4:], JUNK).save(os.path.join(OUT, 'blocks_b.png'))
 walls().save(os.path.join(OUT, 'walls.png'))
 font().save(os.path.join(OUT, 'font.png'))
 for i, p in enumerate(PLAYERS):
-    player_sheet(p).save(os.path.join(OUT, f'p{i + 1}.png'))
+    player_sheet(i + 1, p).save(os.path.join(OUT, f'p{i + 1}.png'))

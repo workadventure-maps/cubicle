@@ -16,7 +16,7 @@ all: gfx $(ROMNAME).sfc
 GFX_PNG := gfx/blocks_a.png gfx/blocks_b.png gfx/walls.png gfx/font.png gfx/p1.png gfx/p2.png gfx/p3.png gfx/p4.png
 GFX_PIC := $(GFX_PNG:.png=.pic)
 
-gfx/.stamp: tools/mkgfx.py assets/font.bmp $(wildcard assets/woka/*.png)
+gfx/.stamp: tools/mkgfx.py assets/font.bmp $(wildcard assets/woka/*.png) $(wildcard assets/sprites/*.png)
 	python3 tools/mkgfx.py assets gfx
 	touch $@
 

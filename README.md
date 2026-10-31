@@ -50,7 +50,8 @@ controller port 2 to "Multitap" for players 3 and 4.
 
 ## Credits
 
-- Characters: Woka parts designed by the WorkAdventure team (`assets/woka/`), © WorkAdventu.re, MIT.
+- Characters: Woka parts designed by the WorkAdventure team (`assets/woka/`), redrawn at 21x21 for the game
+  (`assets/sprites/`, from Bombadventure), © WorkAdventu.re, MIT.
 - Font: PVSnesLib example font by Alekmaul, zlib license, see `assets/font.LICENSE.txt`.
 - Built with [PVSnesLib](https://github.com/alekmaul/pvsneslib). The web page loads EmulatorJS (GPL-3.0) from its CDN.
 
