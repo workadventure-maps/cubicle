@@ -1,6 +1,6 @@
 /*---------------------------------------------------------------------------------
-    Cubicles: a falling-block versus game for 1 to 4 players around a WorkAdventure arcade cabinet.
-    P1 on port 1, P2-P4 on a Multitap in port 2. Design decisions: DESIGN.md.
+    Cubicles: a falling-block game for 1 to 4 players around a WorkAdventure arcade cabinet, in versus (a well
+    each) or open space (one shared well). P1 on port 1, P2-P4 on a Multitap in port 2. Design: DESIGN.md.
 ---------------------------------------------------------------------------------*/
 #include <snes.h>
 #include <string.h>
@@ -20,6 +20,8 @@ extern char sfx_join, sfx_join_end, sfx_topout, sfx_topout_end;
 // 64 px: four wells fill the 256 px screen, the first separator column straddling both screen edges.
 // Per well: player label on row 1, Woka and next piece on rows 2-4, partition caps on row 5, the well on
 // rows 6-25, floor on row 26, READY marks on row 27.
+// Open space: one well, 7 columns per player, each player's Woka and next piece above their 7 columns. The team
+// score is on row 1 and the player labels on row 2. An even-width well needs no BG scroll to be centered.
 #define WELL_W 7
 #define WELL_TOP 6
 #define FLOOR_ROW 26
@@ -28,17 +30,25 @@ extern char sfx_join, sfx_join_end, sfx_topout, sfx_topout_end;
 #define CAP_ROW 5
 #define READY_ROW 27
 #define MSG_ROW 14
+#define NOTE_ROW 16 // mode of the next game
+#define HUD_ROW 1   // open space: team score
+#define TEAM_LABEL_ROW 2
 #define WOKA_Y 15
 
-// Board: one u16 bit mask per row, columns 0..6 in bits 3..9, walls in the other bits. Rows 0-1 are hidden
-// above the well, 2-21 visible, 22-25 floor (all bits set), so a piece box (4 rows) never reads past it.
+// Board: a 32-bit mask per row (two u16, low word first), columns 0..w-1 in bits 3..w+2, walls in the other
+// bits (src/well.asm explains how pieces are tested). Rows 0-1 are hidden above the well, 2-21 visible, 22-25
+// floor (all bits set), so a piece box (4 rows) never reads past it. Versus: 4 boards of 7 columns. Open space:
+// board 0 only, 7 columns per player.
 #define HID 2
 #define BOTTOM 21
 #define ROWS 26
-#define CELLS 0x03F8
-#define WALLS 0xFC07
-#define FULL 0xFFFF
-const u8 row_base[4] = {0, ROWS, 2 * ROWS, 3 * ROWS};
+#define CELLS 0x03F8 // versus: the cells of a row's low word
+const u8 vs_base[4] = {0, ROWS, 2 * ROWS, 3 * ROWS};
+// open space, by player count: walls of an empty row, first screen column of the well, BG scroll
+const u16 open_wall_lo[5] = {0, 0xFC07, 0x0007, 0x0007, 0x0007};
+const u16 open_wall_hi[5] = {0, 0xFFFF, 0xFFFE, 0xFF00, 0x8000};
+const u8 open_col0[5] = {0, 13, 9, 6, 2};
+const u8 open_scroll[5] = {4, 4, 0, 4, 0};
 
 // VRAM (words): Woka frames $0000-$1FFF (P1..P4 at $0000, $0800, $1000, $1800), BG1 tiles $2000 (blocks_a, blocks_b, walls: 16 tiles each),
 // BG3 font $6000, BG3 text map $7000, BG1 map $7400.
@@ -91,11 +101,15 @@ const u8 kick[5] = {0, 255, 1, 254, 2};
 #define SPAWN_FRAMES 6    // pause between a lock and the next piece
 #define SEQ_LEN 252       // 36 shuffled sets of the 7 pieces, shared by all players in a match
 #define MAX_JUNK 20
+#define BREAK_FRAMES 600 // open space: a player who touched nothing for 10 s gets no new piece (coffee break)
 // fall speed in frames per row: versus every 30 seconds, solo every 10 lines
 const u8 vs_speed[8] = {36, 24, 16, 10, 6, 4, 2, 1};
 const u8 solo_speed[16] = {48, 40, 33, 27, 22, 18, 15, 12, 10, 8, 7, 6, 5, 4, 3, 2};
 const u8 line_points[5] = {0, 1, 4, 9, 16}; // x 10 x (level + 1)
 const u8 bit_count[16] = {0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
+
+#define MODE_VERSUS 0
+#define MODE_OPEN 1
 
 // game states
 #define ST_TITLE 0
@@ -110,6 +124,7 @@ const u8 bit_count[16] = {0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
 #define W_SETTLE 3 // after a lock: rows collapse, junk rises, next piece
 #define W_LOCK 4   // landed: locks on the first frame with room
 // Locking, spawning or redrawing a piece costs ~10-20 scanlines: at most MAX_WORK per frame, the rest waits.
+// In open space a lock costs about twice as much (lock_work 2), and the wide collapse takes a frame of its own.
 #define MAX_WORK 3
 
 // sound effects, by rising priority (one starts per frame)
@@ -133,6 +148,8 @@ const u8 title_x[4] = {40, 88, 136, 184};
 #define TITLE_LABEL_ROW 21
 #define TITLE_PROMPT_ROW 23
 #define TITLE_BEST_ROW 25
+#define TITLE_TEAM_ROW 26
+#define TITLE_MODE_ROW 12
 #define LOGO_ROW 5
 
 // text palettes: 0 white, then P1..P4 in the cabinet's badge colors (red, blue, green, yellow), BGR555
@@ -154,36 +171,60 @@ u8 blk_x[112], blk_y[112];  // the 4 blocks of each shape, same index
 u16 blk_off[112];           // their bgmap offsets from the box's top-left cell
 u16 row_map[ROWS];          // bgmap index of board row y, column 0 of a well at screen column 0
 
-u16 rows[4 * ROWS];
+// +2: a piece's 16-bit window on a row's last byte reads one byte past it
+u16 rows[8 * ROWS + 2];
+u16 ov[8 * ROWS + 2];  // falling pieces of a shared well (solid for teammates), same layout as rows
+u16 dmark[8 * ROWS + 2]; // collapse: rows holding a drawn piece or ghost cell (src/well.asm)
+u16 newrow[ROWS];      // collapse: where each board row went (0xFFFF: cleared)
+u16 solid;             // 0xFFFF: collisions include ov (open space); 0: only the board
+u8 rbase[4];           // each player's board: first row index in rows
+u8 wcells[4];          // its width in cells
+u16 wall_lo[4], wall_hi[4]; // its empty row
 u8 phase[4];
 u8 ptype[4], prot[4], pcol[4], pyy[4], gy[4]; // pcol: box column + 3; pyy, gy: box row of piece and ghost
-u16 pmask[20];       // each falling piece's 4 row masks, shifted to pcol (p * 4), then candidate masks (TM)
+u8 pk[4];            // byte of the board row where each piece's masks start (pcol / 8)
+u16 pmask[20];       // each falling piece's 4 row masks, shifted by pcol % 8 (p * 4), then candidate masks (TM)
 #define TM 16
 u16 drawn[32];       // bgmap cells showing each well's piece (0-3) and ghost (4-7); 0xFFFF: none
-u8 col0[4];          // screen column of each well's first cell
+u16 drawn_t[32];     // the tile drawn there
+u8 col0[4];          // screen column of each player's well's first cell
+u8 zcol[4];          // screen column of each player's own 7 columns (Woka, next piece, label)
+u8 spcol[4];         // pcol of a new piece
 u8 grav[4], lockt[4], resets[4], das[4], wait[4];
+u8 airborne[4];      // the last test found room below the piece, and it hasn't moved down since
 u8 pending[4];       // junk rows on their way
 u8 cleared[4];       // rows cleared by the last lock, still to collapse
 u8 seqi[4];
 u8 seq[SEQ_LEN];
 u16 keys_now[4], keys_down[4], keys_before[4]; // presses seen by the game, so a late frame can't lose one
+u16 keys_held[4];    // presses kept for the next frame (open space: a frame where the well collapsed)
 u8 cheer[4];         // frames left of the Woka's hop after a clear
 u8 high[4];          // highest filled board row (the Woka panics when it gets close to the top)
 
 u8 inmatch[4], ready[4], wins[4];
 u8 touched[4]; // pressed something since the match started: who didn't sits out the next one (left the cabinet)
+u16 idle[4];   // frames since the pad was last touched
+u8 brk[4];     // open space: on a coffee break (no new piece until the pad is touched)
+u8 mode;       // MODE_VERSUS or MODE_OPEN, for the next game (title: Left/Right; any time: Select)
+u8 coop;       // this game is open space with 2 or more players
+u8 scroll_x, scroll_set; // BG scroll, applied in VBlank
+u16 note_timer;
 u8 nplay, npads;
 u8 state;
 u16 state_timer;
 u16 match_frames;
 u8 vs_level, fall_speed;
 u16 score_hi, score_lo, best_hi, best_lo, lines; // scores are hi * 10000 + lo
-u8 level;
+u16 team_hi, team_lo; // best open-space score
+u8 level, level_lines; // level_lines: lines cleared since the level began
+u8 hud_step;           // score numbers still to redraw (one per frame)
 u8 heavy;  // one heavy board operation (collapse, junk, gray-out) per frame
 u8 work;   // piece locks and redraws this frame (at most MAX_WORK)
+u8 lock_work; // what a lock counts in work: 1, 2 in open space
 u8 dirty[4]; // the piece needs a redraw (1), and its ghost moved too (2)
 u8 next_draw; // first well to consider for redraws, rotating for fairness
 u8 seeded;
+u8 sprite_turn; // the Woka draw_sprites updates next
 char buf[12];
 
 // ---- Sound ----------------------------------------------------------------------------------
@@ -264,15 +305,26 @@ void center(u8 y, u8 pal, char *s)
     text(16 - (n >> 1), y, pal, s);
 }
 
+// digits by subtraction: this compiler's divisions are slow (a 4-number score panel cost ~100 scanlines)
+const u16 pow10[5] = {1, 10, 100, 1000, 10000};
+
 void number(u8 x, u8 y, u16 v, u8 digits)
 {
-    buf[digits] = 0;
+    u8 i = 0;
+    u16 p;
+    char d;
     while (digits)
     {
-        digits--;
-        buf[digits] = '0' + v % 10;
-        v /= 10;
+        p = pow10[--digits];
+        d = '0';
+        while (v >= p)
+        {
+            v -= p;
+            d++;
+        }
+        buf[i++] = d;
     }
+    buf[i] = 0;
     text(x, y, 0, buf);
 }
 
@@ -291,19 +343,45 @@ void draw_ready(void)
         text((p << 3) + 2, READY_ROW, 1 + p, ready[p] ? "READY" : "     ");
 }
 
-// solo: score, lines and level right of the well, best score left of it
-void draw_solo_hud(void)
+// solo: score, lines and level right of the well, best score left of it. Open space: one line on top.
+// Number k: 0 level, 1 lines, 2 and 3 the score's low and high part.
+const u8 hud_digits[4] = {2, 4, 4, 3};
+const u8 solo_hud_x[4] = {22, 22, 25, 22};
+const u8 solo_hud_y[4] = {17, 13, 9, 9};
+const u8 open_hud_x[4] = {29, 22, 11, 8};
+
+void draw_hud(u8 k)
 {
-    number(22, 9, score_hi, 3);
-    number(25, 9, score_lo, 4);
-    number(22, 13, lines, 4);
-    number(22, 17, level + 1, 2);
+    u16 v = score_hi;
+    if (k == 0)
+        v = level + 1;
+    else if (k == 1)
+        v = lines;
+    else if (k == 2)
+        v = score_lo;
+    if (coop)
+        number(open_hud_x[k], HUD_ROW, v, hud_digits[k]);
+    else
+        number(solo_hud_x[k], solo_hud_y[k], v, hud_digits[k]);
+}
+
+void draw_score(void)
+{
+    u8 k;
+    for (k = 0; k < 4; k++)
+        draw_hud(k);
 }
 
 void draw_best(u8 x, u8 y)
 {
     number(x, y, best_hi, 3);
     number(x + 3, y, best_lo, 4);
+}
+
+void draw_mode_note(void)
+{
+    center(NOTE_ROW, 0, mode ? "NEXT: OPEN SPACE" : "NEXT: VERSUS");
+    note_timer = 120;
 }
 
 // ---- Pieces ---------------------------------------------------------------------------------
@@ -342,22 +420,34 @@ void init_pieces(void)
     }
 }
 
-// in src/well.asm
-u8 fits(u8 mi, u8 at);       // masks pmask[mi..mi+3] fit with the box top on rows[at]?
-u8 find_drop(u8 mi, u8 at);  // lowest row they fit at, falling from at
-void draw_piece_cells(u8 p); // erase well p's piece and ghost, draw them again
-u8 place(u8 p, u8 s, u8 col); // shape s at column col fits? then it becomes well p's piece masks
+// in src/well.asm. Row indices (at) count from the start of rows: rbase[p] + board row.
+u8 fits(u8 p, u8 at);        // piece p's masks fit with its box top on row at?
+u8 fits_board(u8 p, u8 at);  // the same, ignoring teammates' falling pieces
+u8 find_drop(u8 p, u8 at);   // lowest row they fit at, falling from at
+u8 find_land(u8 p, u8 at);   // the same, ignoring teammates' falling pieces (where the ghost goes)
+void draw_piece_cells(u8 p); // erase p's piece and ghost, draw them again
+void erase_piece_cells(u8 p);
+u8 place(u8 p, u8 s, u8 col); // shape s at column col fits? then it becomes p's piece masks
+void ov_xor(u8 p);           // p's piece into the falling-piece overlay, or out of it
+u8 read_pads(u8 n);          // pads 0..n-1 into keys_now / keys_down; a bit per pad with Start, Select, Left or Right
+u8 find_top(u8 p);           // highest visible row of p's board with a block in it (BOTTOM + 1: none)
 u8 lock_rows(u8 p);          // the piece joins the board: 255 if locked above the well, else its full rows
-void collapse(u8 p);         // full rows go away
+void collapse(u8 p);         // full rows go away; teammates' falling pieces move down with their rows
 void add_junk_rows(u8 p, u8 n, u8 gap);
 void gray_well_cells(u8 p);
 void draw_next_cells(u8 p, u8 t);
 u16 dw_p, dw_slot, dw_s, dw_tilex, dw_col, dw_y0, dw_tile, dw_dst, dw_base, dw_k, dw_n; // their scratch
+u16 dw_w, dw_wlo, dw_whi, dw_ghost;
+
+void solid_on(void)
+{
+    solid = coop ? 0xFFFF : 0;
+}
 
 void draw_piece(u8 p)
 {
-    if (dirty[p] & 2)
-        gy[p] = find_drop(p << 2, row_base[p] + pyy[p]) - row_base[p];
+    if (dirty[p] & 2) // the ghost shows where the piece lands on the stack, not on a teammate's falling piece
+        gy[p] = find_land(p, rbase[p] + pyy[p]) - rbase[p];
     draw_piece_cells(p);
     mark_bg(WELL_TOP, FLOOR_ROW - 1);
     dirty[p] = 0;
@@ -419,15 +509,24 @@ u8 count_alive(void)
     return n;
 }
 
-// a topped-out player's well grays out on a later frame (heavy)
+// a topped-out player's well grays out on a later frame (heavy). In open space the whole team is out.
 void top_out(u8 p)
 {
+    u8 q;
+    if (coop)
+        for (q = 0; q < 4; q++)
+            if (inmatch[q])
+                phase[q] = W_OFF;
     phase[p] = W_DYING;
     sfx(SFX_TOPOUT);
 }
 
 void gray_well(u8 p)
 {
+    u8 q;
+    if (coop)
+        for (q = 0; q < 4; q++)
+            erase_piece_cells(q);
     gray_well_cells(p);
     mark_bg(WELL_TOP, FLOOR_ROW - 1);
 }
@@ -435,20 +534,13 @@ void gray_well(u8 p)
 // pending junk rows push the stack up, each with a gap in the same column (heavy)
 void add_junk(u8 p)
 {
+    u16 i = rbase[p] << 1;
     add_junk_rows(p, pending[p], rand() % WELL_W);
     pending[p] = 0;
     mark_bg(WELL_TOP, FLOOR_ROW - 1);
     sfx(SFX_JUNK);
-    if ((rows[row_base[p]] | rows[row_base[p] + 1]) & CELLS)
+    if ((rows[i] | rows[i + 2]) & CELLS)
         top_out(p); // pushed out of the top
-}
-
-void find_high(u8 p)
-{
-    u8 y = HID;
-    while (y <= BOTTOM && !(rows[row_base[p] + y] & CELLS))
-        y++;
-    high[p] = y;
 }
 
 void draw_next(u8 p)
@@ -457,26 +549,40 @@ void draw_next(u8 p)
     mark_bg(NEXT_ROW, NEXT_ROW + 1);
 }
 
+// the next piece, above the player's own columns. In open space a teammate's falling piece in the way only
+// delays it: the spawn is tried again next frame.
 void spawn(u8 p)
 {
-    u8 t = seq[seqi[p]];
-    if (++seqi[p] == SEQ_LEN)
-        seqi[p] = 0;
+    u8 t = seq[seqi[p]], ok;
     ptype[p] = t;
     prot[p] = 0;
-    pcol[p] = SPAWN_COL;
+    pcol[p] = spcol[p];
     pyy[p] = t == PIECE_I ? HID - 1 : HID;
     grav[p] = 0;
     lockt[p] = 0;
     resets[p] = 0;
+    airborne[p] = 0;
+    ok = place(p, t << 4, spcol[p]);
+    if (coop && ok == 0)
+    {
+        solid = 0;
+        ok = place(p, t << 4, spcol[p]);
+        solid_on();
+        if (ok)
+            return;
+    }
+    if (++seqi[p] == SEQ_LEN)
+        seqi[p] = 0;
     draw_next(p);
-    if (!place(p, t << 4, SPAWN_COL))
+    if (!ok)
     {
         top_out(p);
         return;
     }
     phase[p] = W_FALL;
     dirty[p] = 3;
+    if (coop)
+        ov_xor(p);
 }
 
 void add_score(u8 n)
@@ -489,18 +595,23 @@ void add_score(u8 n)
             score_hi++;
     }
     lines += n;
-    level = lines / 10;
-    if (level > 15)
-        level = 15;
-    draw_solo_hud();
+    level_lines += n;
+    if (level_lines >= 10)
+    {
+        level_lines -= 10;
+        if (level < 15)
+            level++;
+    }
+    hud_step = 4; // redrawn one number per frame
 }
 
+// p's piece becomes blocks. In open space it leaves the falling-piece overlay.
 void lock_piece(u8 p)
 {
     u8 full, n, q;
     if (dirty[p])
         draw_piece(p); // the piece's final cells, which become blocks
-    full = lock_rows(p);
+    full = lock_rows(p); // (in open space, teammates in these columns redraw: their ghosts may land on it)
     sfx(SFX_LOCK);
     if (full == 255)
     {
@@ -517,7 +628,7 @@ void lock_piece(u8 p)
     {
         sfx(SFX_CLEAR);
         cheer[p] = 40;
-        if (nplay == 1)
+        if (nplay == 1 || coop)
             add_score(n);
         else
             for (q = 0; q < 4; q++)
@@ -533,18 +644,34 @@ void lock_piece(u8 p)
 void land(u8 p)
 {
     phase[p] = W_LOCK;
-    if (work < MAX_WORK)
+    if (work + lock_work <= MAX_WORK)
     {
-        work++;
+        work += lock_work;
         lock_piece(p);
     }
+}
+
+// the piece rests on the stack, not just on a teammate's falling piece (which only holds it up)
+u8 on_stack(u8 p)
+{
+    return fits_board(p, rbase[p] + pyy[p] + 1) == 0;
 }
 
 void update_piece(u8 p)
 {
     u16 keys = keys_now[p], down = keys_down[p];
-    u8 moved = 0, step = 0, speed;
+    u8 moved = 0, step = 0, speed, rest = 0;
 
+    speed = fall_speed;
+    if ((keys & KEY_DOWN) && speed > SOFT_DROP)
+        speed = SOFT_DROP;
+    if ((keys | down) == 0 && airborne[p] && grav[p] + 1 < speed)
+    {
+        grav[p]++; // most frames: no input, still room below, no row to fall yet
+        return;
+    }
+    if (coop)
+        ov_xor(p); // out of the overlay while it moves: a piece doesn't collide with itself
     if (down & (KEY_UP | KEY_A | KEY_X))
         moved = try_rotate(p);
     if (keys & (KEY_LEFT | KEY_RIGHT))
@@ -571,27 +698,44 @@ void update_piece(u8 p)
             resets[p]++;
         }
     }
-    if (down & (KEY_B | KEY_Y)) // hard drop
+    if (down & (KEY_B | KEY_Y)) // hard drop: locks on the stack, or stops on a teammate's piece
     {
-        pyy[p] = find_drop(p << 2, row_base[p] + pyy[p]) - row_base[p];
-        dirty[p] = 3;
-        land(p);
-        return;
-    }
-    speed = fall_speed;
-    if ((keys & KEY_DOWN) && speed > SOFT_DROP)
-        speed = SOFT_DROP;
-    if (fits(p << 2, row_base[p] + pyy[p] + 1))
-    {
-        lockt[p] = 0;
-        if (++grav[p] >= speed)
+        pyy[p] = find_drop(p, rbase[p] + pyy[p]) - rbase[p];
+        rest = coop ? on_stack(p) : 1;
+        if (rest)
         {
-            grav[p] = 0;
-            pyy[p]++;
+            gy[p] = pyy[p]; // landed: the ghost is there too, no need to look for it again
             dirty[p] |= 1;
         }
+        else
+            dirty[p] = 3;
     }
-    else if (++lockt[p] >= LOCK_DELAY)
+    else
+    {
+        airborne[p] = 0;
+        if (fits(p, rbase[p] + pyy[p] + 1))
+        {
+            lockt[p] = 0;
+            if (++grav[p] >= speed)
+            {
+                grav[p] = 0;
+                pyy[p]++;
+                dirty[p] |= 1;
+            }
+            else
+                airborne[p] = 1;
+        }
+        else if (coop == 0 || on_stack(p))
+        {
+            if (++lockt[p] >= LOCK_DELAY)
+                rest = 1;
+        }
+        else
+            lockt[p] = 0; // held up by a teammate's piece: it neither falls nor locks
+    }
+    if (coop)
+        ov_xor(p);
+    if (rest)
         land(p);
 }
 
@@ -607,10 +751,14 @@ void settle(u8 p)
         return;
     if (cleared[p])
     {
+        if (coop && work)
+            return; // the shared well's collapse waits for a frame with nothing else to do
         collapse(p);
         mark_bg(WELL_TOP, FLOOR_ROW - 1);
         cleared[p] = 0;
         heavy = 1;
+        if (coop)
+            work = MAX_WORK;
         return;
     }
     if (pending[p])
@@ -619,10 +767,15 @@ void settle(u8 p)
         heavy = 1;
         return;
     }
+    if (coop && idle[p] >= BREAK_FRAMES)
+    {
+        brk[p] = 1; // coffee break: no next piece until the pad is touched
+        return;
+    }
     if (work < MAX_WORK)
     {
         work++;
-        find_high(p);
+        high[p] = find_top(p);
         spawn(p);
     }
 }
@@ -630,12 +783,17 @@ void settle(u8 p)
 void update_well(u8 p)
 {
     if (phase[p] == W_FALL)
-        update_piece(p);
+    {
+        if (coop && heavy)
+            keys_held[p] = keys_down[p]; // the shared well collapsed this frame: this piece waits for the next
+        else
+            update_piece(p);
+    }
     else if (phase[p] == W_SETTLE)
         settle(p);
-    else if (phase[p] == W_LOCK && work < MAX_WORK)
+    else if (phase[p] == W_LOCK && work + lock_work <= MAX_WORK)
     {
-        work++;
+        work += lock_work;
         lock_piece(p);
     }
     else if (phase[p] == W_DYING && !heavy)
@@ -683,6 +841,11 @@ void draw_title_labels(void)
     }
 }
 
+void draw_title_mode(void)
+{
+    center(TITLE_MODE_ROW, 0, mode ? "< OPEN SPACE >" : "<  VERSUS  >");
+}
+
 void to_title(void)
 {
     u8 p;
@@ -691,17 +854,28 @@ void to_title(void)
         inmatch[p] = 0;
         ready[p] = 0;
         touched[p] = 0;
+        brk[p] = 0;
         phase[p] = W_OFF;
     }
     state = ST_TITLE;
     state_timer = 0;
+    coop = 0;
+    scroll_x = 4;
+    scroll_set = 1;
     clear_screen();
     draw_logo();
+    draw_title_mode();
     draw_title_labels();
     if (best_hi || best_lo)
     {
         text(10, TITLE_BEST_ROW, 0, "BEST");
         draw_best(15, TITLE_BEST_ROW);
+    }
+    if (team_hi || team_lo)
+    {
+        text(10, TITLE_TEAM_ROW, 0, "TEAM");
+        number(15, TITLE_TEAM_ROW, team_hi, 3);
+        number(18, TITLE_TEAM_ROW, team_lo, 4);
     }
 }
 
@@ -722,43 +896,63 @@ void deal_sequence(void)
     }
 }
 
-// separators, caps and floor of all wells; with four wells the first column is also the last
+void draw_partition(u8 c, u16 sep, u16 cap, u16 floor)
+{
+    u8 y;
+    bgmap[(CAP_ROW << 5) + c] = cap;
+    for (y = WELL_TOP; y < FLOOR_ROW; y++)
+        bgmap[(y << 5) + c] = sep;
+    bgmap[(FLOOR_ROW << 5) + c] = floor;
+}
+
+// separators, caps and floor of all wells; with four wells the first column is also the last. Open space: the
+// partitions between players are gone, only the outer walls stay.
 void draw_partitions(u8 first)
 {
-    u8 k, c, y;
-    u16 sep, cap, floor;
+    u8 k, c;
+    if (coop)
+    {
+        draw_partition(first - 1, T_SEP_FIRST, T_CAP_FIRST, T_FLOOR_FIRST);
+        draw_partition(first + wcells[0], T_SEP_LAST, T_CAP_LAST, T_FLOOR_LAST);
+        return;
+    }
     for (k = 0; k <= nplay; k++)
     {
         c = (first + (k << 3)) & 31;
         if (nplay < 4 && k == 0)
-        {
-            sep = T_SEP_FIRST;
-            cap = T_CAP_FIRST;
-            floor = T_FLOOR_FIRST;
-        }
+            draw_partition(c, T_SEP_FIRST, T_CAP_FIRST, T_FLOOR_FIRST);
         else if (nplay < 4 && k == nplay)
-        {
-            sep = T_SEP_LAST;
-            cap = T_CAP_LAST;
-            floor = T_FLOOR_LAST;
-        }
+            draw_partition(c, T_SEP_LAST, T_CAP_LAST, T_FLOOR_LAST);
         else
-        {
-            sep = T_SEP;
-            cap = T_CAP;
-            floor = T_FLOOR;
-        }
-        bgmap[(CAP_ROW << 5) + c] = cap;
-        for (y = WELL_TOP; y < FLOOR_ROW; y++)
-            bgmap[(y << 5) + c] = sep;
-        bgmap[(FLOOR_ROW << 5) + c] = floor;
+            draw_partition(c, T_SEP, T_CAP, T_FLOOR);
     }
+}
+
+// an empty board and its cells, for player p's well
+void init_board(u8 p)
+{
+    u8 y, j, w = wcells[p];
+    u16 i, r = rbase[p] << 1;
+    for (y = 0; y < ROWS; y++)
+    {
+        rows[r] = y > BOTTOM ? 0xFFFF : wall_lo[p];
+        rows[r + 1] = y > BOTTOM ? 0xFFFF : wall_hi[p];
+        r += 2;
+    }
+    for (y = WELL_TOP; y < FLOOR_ROW; y++)
+    {
+        i = (y << 5) + col0[p];
+        for (j = 0; j < w; j++)
+            bgmap[i + j] = T_EMPTY;
+    }
+    i = (FLOOR_ROW << 5) + col0[p];
+    for (j = 0; j < w; j++)
+        bgmap[i + j] = T_FLOOR;
 }
 
 void start_match(void)
 {
-    u8 p, k, j, y, first;
-    u16 i;
+    u8 p, k, j, first;
     nplay = 0;
     for (p = 0; p < 4; p++)
     {
@@ -767,31 +961,58 @@ void start_match(void)
         touched[p] = 0;
         nplay += inmatch[p];
     }
+    coop = mode == MODE_OPEN && nplay > 1;
+    lock_work = coop ? 2 : 1;
+    solid_on();
     clear_screen();
     deal_sequence();
-    first = 16 - (nplay << 2);
+    memset(ov, 0, sizeof(ov));
+    if (coop)
+    {
+        first = open_col0[nplay];
+        scroll_x = open_scroll[nplay];
+    }
+    else
+    {
+        first = 16 - (nplay << 2);
+        scroll_x = 4;
+    }
+    scroll_set = 1;
     k = 0;
     for (p = 0; p < 4; p++)
     {
         phase[p] = W_OFF;
         pending[p] = 0;
         cheer[p] = 0;
-        if (!inmatch[p])
-            continue;
-        col0[p] = first + (k << 3) + 1;
-        k++;
-        for (y = 0; y < ROWS; y++)
-            rows[row_base[p] + y] = y > BOTTOM ? FULL : WALLS;
-        for (y = WELL_TOP; y < FLOOR_ROW; y++)
-        {
-            i = (y << 5) + col0[p];
-            for (j = 0; j < WELL_W; j++)
-                bgmap[i + j] = T_EMPTY;
-        }
-        for (j = 0; j < WELL_W; j++)
-            bgmap[(FLOOR_ROW << 5) + col0[p] + j] = T_FLOOR;
+        brk[p] = 0;
+        idle[p] = 0;
         for (j = 0; j < 8; j++)
             drawn[(p << 3) + j] = 0xFFFF;
+        if (!inmatch[p])
+            continue;
+        if (coop)
+        {
+            rbase[p] = 0;
+            col0[p] = first;
+            wcells[p] = nplay * WELL_W;
+            wall_lo[p] = open_wall_lo[nplay];
+            wall_hi[p] = open_wall_hi[nplay];
+            zcol[p] = first + k * WELL_W;
+            spcol[p] = SPAWN_COL + k * WELL_W;
+        }
+        else
+        {
+            rbase[p] = vs_base[p];
+            col0[p] = first + (k << 3) + 1;
+            wcells[p] = WELL_W;
+            wall_lo[p] = open_wall_lo[1];
+            wall_hi[p] = open_wall_hi[1];
+            zcol[p] = col0[p];
+            spcol[p] = SPAWN_COL;
+        }
+        if (coop == 0 || k == 0)
+            init_board(p);
+        k++;
         cleared[p] = 0;
         dirty[p] = 0;
         phase[p] = W_SETTLE;
@@ -799,11 +1020,18 @@ void start_match(void)
         seqi[p] = 0;
         das[p] = 1;
         high[p] = BOTTOM + 1;
-        player_label(col0[p], LABEL_ROW, p);
-        if (nplay > 1)
-            number(col0[p] + 5, LABEL_ROW, wins[p], 2);
+        if (coop)
+            player_label(zcol[p], TEAM_LABEL_ROW, p);
+        else
+        {
+            player_label(col0[p], LABEL_ROW, p);
+            if (nplay > 1)
+                number(col0[p] + 5, LABEL_ROW, wins[p], 2);
+        }
     }
     draw_partitions(first);
+    score_hi = score_lo = lines = 0;
+    level = level_lines = hud_step = 0;
     if (nplay == 1)
     {
         text(22, 8, 0, "SCORE");
@@ -811,16 +1039,35 @@ void start_match(void)
         text(22, 16, 0, "LEVEL");
         text(3, 8, 0, "BEST");
         draw_best(3, 9);
-        score_hi = score_lo = lines = 0;
-        level = 0;
-        draw_solo_hud();
+        draw_score();
+    }
+    else if (coop)
+    {
+        text(2, HUD_ROW, 0, "SCORE");
+        text(16, HUD_ROW, 0, "LINES");
+        text(27, HUD_ROW, 0, "LV");
+        draw_score();
     }
     match_frames = 0;
     vs_level = 0;
     state = ST_COUNTDOWN;
     state_timer = 90;
     center(MSG_ROW, 0, "READY");
+    if (nplay > 1)
+    {
+        center(NOTE_ROW, 0, coop ? "OPEN SPACE" : "VERSUS");
+        note_timer = 90;
+    }
     draw_ready();
+}
+
+u8 all_on_break(void)
+{
+    u8 p;
+    for (p = 0; p < 4; p++)
+        if (inmatch[p] && brk[p] == 0)
+            return 0;
+    return 1;
 }
 
 void show_result(void)
@@ -829,7 +1076,19 @@ void show_result(void)
     for (p = 0; p < 4; p++)
         if (inmatch[p] && alive(p))
             winner = p;
-    if (nplay == 1)
+    if (coop)
+    {
+        if (score_hi > team_hi || (score_hi == team_hi && score_lo > team_lo))
+        {
+            team_hi = score_hi;
+            team_lo = score_lo;
+        }
+        center(MSG_ROW, 0, all_on_break() ? "EVERYONE ON BREAK" : "GAME OVER");
+        for (p = 0; p < 4; p++)
+            if (brk[p])
+                touched[p] = 0; // still away: sits out the next game
+    }
+    else if (nplay == 1)
     {
         p = 0;
         while (!inmatch[p])
@@ -845,7 +1104,7 @@ void show_result(void)
             inmatch[p] = 0; // back to the title unless someone pressed Start
         }
         else
-            center(MSG_ROW, 0, "NEW CHALLENGER!");
+            center(MSG_ROW, 0, mode ? "NEW COWORKER!" : "NEW CHALLENGER!");
     }
     else if (winner == 255)
         center(MSG_ROW, 0, "DRAW");
@@ -862,18 +1121,21 @@ void show_result(void)
     state_timer = 180;
 }
 
-// Start on a pad that is not playing: join the next match (or this one, on the title)
+// Start on a pad that is not playing: join the next match (or this one, on the title). Select on any pad, or
+// Left/Right on the title, switches the mode of the next game.
 void check_joins(void)
 {
-    u8 p, joined = 0;
-    for (p = 0; p < npads; p++)
+    u8 p, joined = 0, toggle = 0, act;
+    u16 down;
+    act = read_pads(npads);
+    for (p = 0; act; p++, act >>= 1)
     {
-        keys_now[p] = padsCurrent(p);
-        keys_down[p] = keys_now[p] & ~keys_before[p];
-        keys_before[p] = keys_now[p];
-        if (keys_now[p])
-            touched[p] = 1;
-        if ((keys_down[p] & KEY_START) && !ready[p] && (state == ST_TITLE || inmatch[p] == 0))
+        if ((act & 1) == 0)
+            continue;
+        down = keys_down[p];
+        if ((down & KEY_SELECT) || (state == ST_TITLE && (down & (KEY_LEFT | KEY_RIGHT))))
+            toggle = 1;
+        if ((down & KEY_START) && !ready[p] && (state == ST_TITLE || inmatch[p] == 0))
         {
             if (!seeded)
             {
@@ -892,6 +1154,16 @@ void check_joins(void)
         else
             draw_ready();
     }
+    if (toggle)
+    {
+        mode ^= 1;
+        if (state == ST_TITLE)
+            draw_title_mode();
+        else
+            draw_mode_note();
+    }
+    if (note_timer && --note_timer == 0)
+        clear_row(NOTE_ROW);
 }
 
 void update_game(void)
@@ -937,7 +1209,7 @@ void update_game(void)
     case ST_PLAY:
         if (state_timer && --state_timer == 0)
             clear_row(MSG_ROW);
-        if (nplay == 1)
+        if (nplay == 1 || coop)
             fall_speed = solo_speed[level];
         else
         {
@@ -958,8 +1230,16 @@ void update_game(void)
                 cheer[p]--;
         }
         draw_dirty();
+        if (hud_step && heavy == 0)
+            draw_hud(--hud_step);
         n = count_alive();
-        if (nplay == 1 ? (n == 0 || ready[0] + ready[1] + ready[2] + ready[3]) : n <= 1)
+        if (nplay == 1)
+            n = n == 0 || ready[0] + ready[1] + ready[2] + ready[3];
+        else if (coop)
+            n = n == 0 || all_on_break();
+        else
+            n = n <= 1;
+        if (n)
             state = ST_ENDING;
         break;
 
@@ -968,6 +1248,8 @@ void update_game(void)
         break;
 
     case ST_RESULT:
+        if (hud_step)
+            draw_hud(--hud_step);
         for (p = 0; p < 4; p++)
         {
             if (phase[p] == W_DYING)
@@ -1002,33 +1284,29 @@ void put_woka(u8 p, u8 x, u8 y, u8 f)
     oamMemory[i + 3] = OBJ_PRIO(2) | OBJ_PAL(p) | (t >> 8);
 }
 
+// One Woka per frame: their poses change every 8 frames at most, and all four cost 25 scanlines of compiled C.
 void draw_sprites(void)
 {
-    u8 p, x, y, f;
-    for (p = 0; p < 4; p++)
+    u8 p = sprite_turn, x = 0, y = 224, f = F_STAND;
+    sprite_turn = (p + 1) & 3;
+    if (state == ST_TITLE)
     {
-        x = 0;
-        y = 224;
-        f = F_STAND;
-        if (state == ST_TITLE)
-        {
-            x = title_x[p];
-            y = TITLE_Y;
-            f = F_TITLE + (ready[p] ? walk_cycle[((snes_vblank_count >> 3) + p) & 3] : 1);
-        }
-        else if (inmatch[p])
-        {
-            x = (col0[p] << 3) - 8;
-            y = WOKA_Y;
-            if (!alive(p))
-                f = F_BACK;
-            else if (cheer[p])
-                y -= (cheer[p] & 8) >> 2;
-            else if (high[p] < HID + 6) // stack close to the top: looks around nervously
-                f = (snes_vblank_count & 16) ? F_LEFT : F_RIGHT;
-        }
-        put_woka(p, x, y, f);
+        x = title_x[p];
+        y = TITLE_Y;
+        f = F_TITLE + (ready[p] ? walk_cycle[((snes_vblank_count >> 3) + p) & 3] : 1);
     }
+    else if (inmatch[p])
+    {
+        x = (zcol[p] << 3) - 4 - scroll_x;
+        y = coop ? WOKA_Y + 2 : WOKA_Y; // open space: its label is on the row just above
+        if (!alive(p) || brk[p])
+            f = F_BACK; // out, or on a coffee break
+        else if (cheer[p])
+            y -= (cheer[p] & 8) >> 2;
+        else if (high[p] < HID + 6) // stack close to the top: looks around nervously
+            f = (snes_vblank_count & 16) ? F_LEFT : F_RIGHT;
+    }
+    put_woka(p, x, y, f);
 }
 
 // ---- VBlank transfers -------------------------------------------------------------------------
@@ -1075,6 +1353,12 @@ void prepare_vblank(void)
 
 void vblank_work(void)
 {
+    if (scroll_set)
+    {
+        bgSetScroll(0, scroll_x, 0);
+        bgSetScroll(2, scroll_x, 0);
+        scroll_set = 0;
+    }
     if (bg_len)
         dmaCopyVram(bg_src, bg_vaddr, bg_len);
     if (txt_len)
@@ -1149,7 +1433,8 @@ int main(void)
     {
         wins[p] = 0;
         dirty[p] = 0;
-        keys_now[p] = keys_down[p] = keys_before[p] = 0;
+        idle[p] = 0;
+        keys_now[p] = keys_down[p] = keys_before[p] = keys_held[p] = 0;
     }
     next_draw = 0;
 
@@ -1157,7 +1442,13 @@ int main(void)
     for (i = 0; i < ROWS; i++)
         row_map[i] = (WELL_TOP - HID + i) << 5;
     seeded = 0;
-    best_hi = best_lo = 0;
+    best_hi = best_lo = team_hi = team_lo = 0;
+    memset(dmark, 0, sizeof(dmark));
+    mode = MODE_VERSUS;
+    coop = 0;
+    note_timer = 0;
+    sprite_turn = 0;
+    solid = 0;
     vbl_end = vbl_late = 0;
 
     detectMPlay5();
@@ -1171,6 +1462,7 @@ int main(void)
     bgSetDisable(1);
     bgSetScroll(0, 4, 0);
     bgSetScroll(2, 4, 0);
+    scroll_set = 0;
     setScreenOn();
 
     while (1)

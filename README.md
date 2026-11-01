@@ -1,21 +1,26 @@
 # Cubicles
 
-A falling-block versus game for the Super Nintendo, for 1 to 4 players around a WorkAdventure arcade cabinet.
+A falling-block game for the Super Nintendo, for 1 to 4 players around a WorkAdventure arcade cabinet: versus,
+or co-op in one shared well.
 See [DESIGN.md](DESIGN.md).
 
-![The title screen, and a 4-player match: junk rows under every stack, pieces falling with their landing outline](docs/screenshot.png)
+![The title screen with the mode choice, a 4-player versus match with junk rows under every stack, and a 4-player open-space game in one shared well](docs/screenshot.png)
 
 ## Play
 
 In your browser: https://workadventure-maps.github.io/cubicle/ (built from `main` by GitHub Actions).
 
-- Press **Start** to join. Alone, it's an endless score attack; a second player's Start turns it into a versus
-  match. Players 2 to 4 need a Multitap in port 2 (snes9x: set port 2 to "Multitap").
+- Press **Start** to join. Alone, it's an endless score attack; a second player's Start turns it into a match.
+  Players 2 to 4 need a Multitap in port 2 (snes9x: set port 2 to "Multitap").
+- Two modes: **Versus** (a well each) and **Open space** (one shared well, co-op). Pick one with **Left / Right**
+  on the title; **Select** switches the next game's mode at any time (Shift on the cabinet's keyboard).
 - **Left / Right** move, **Down** drops faster, **Up**, **A** or **X** turns the piece, **B** or **Y** drops it at
   once. On the cabinet's keyboard: arrows, **Z** turns, **X** drops.
-- Clearing 2 or more lines at once sends junk rows to every opponent. Last well standing wins the match; the
-  pieces fall faster every 30 seconds. A player who doesn't touch the pad during a whole match (someone who left
-  the cabinet) sits out the next one until they press Start again.
+- Versus: clearing 2 or more lines at once sends junk rows to every opponent. Last well standing wins the match;
+  the pieces fall faster every 30 seconds. A player who doesn't touch the pad during a whole match (someone who
+  left the cabinet) sits out the next one until they press Start again.
+- Open space: 7 columns per player, one team score. Teammates' falling pieces are solid. Someone who doesn't
+  touch the pad for 10 seconds goes on a coffee break: no new pieces for them until they press a button.
 
 ## Build
 
@@ -43,8 +48,8 @@ controller port 2 to "Multitap" for players 3 and 4.
 
 | Path | What |
 |---|---|
-| `src/main.c` | game: matches, wells, pieces, HUD, VBlank transfers |
-| `src/well.asm` | hot paths in 65816 assembly: collisions, landing row, piece drawing, collapsing rows, junk |
+| `src/main.c` | game: modes, matches, wells, pieces, HUD, VBlank transfers |
+| `src/well.asm` | hot paths in 65816 assembly: collisions, landing row, piece drawing, collapsing rows, junk, pads |
 | `data.asm` | graphics and sound data included in the ROM |
 | `tools/mkgfx.py` | builds the blocks, partitions, font and Woka sprites |
 | `tools/mksfx.py` | synthesizes the placeholder sound effects |
