@@ -26,7 +26,7 @@
 ; ALTERED for Cubicles (2026), from PVSnesLib 4.6.0 snesmod/sm_spc_wla.asm:
 ; - command $0C sets the tempo (BPM, 81-255) from the game,
 ; - command $0D queues the order to play when the current pattern ends
-;   ($FE: stop there, $FF: none, the default: next order).
+;   ($FE: stop there and report position $FE on port 3, $FF: none, the default: next order).
 ; Changed lines are marked "Cubicles".
 ;========================================================
 
@@ -1170,6 +1170,7 @@ _adv_pos:
 	mov	next_position, #$FF	;
 	cmp	a, #$FE			; $FE: stop at the end of this pattern
 	bne	_adv_jump		;
+	mov	mod_position, a		; and report $FE: the game sees the end
 	jmp !Module_Stop		;
 _adv_jump:				;
 	jmp !Module_ChangePosition	;

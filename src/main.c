@@ -206,11 +206,13 @@ void sfx(u8 id)
 // Solo games only: in versus, the players talk to each other. "In the Hall of the Mountain King"
 // (music/mountain_king.it): pattern 0 is the opening bar (not played), patterns 1-20 form 7 groups of rising
 // tension, 21-22 end a lost game. A group plays to its end, then the stack height picks the next one (up or
-// down); the level sets the tempo. Our driver (snesmod/sm_spc.asm) takes both from the game.
+// down), or the ending after a game over; the level sets the tempo. Our driver (snesmod/sm_spc.asm) takes both
+// from the game.
 #define MUS_OFF 0
 #define MUS_PLAY 1
-#define MUS_END 2
-#define ORDER_STOP 0xFE // stop when the current pattern ends
+#define MUS_END 2      // game over: the current group, then the ending, then silence
+#define ENDING 21
+#define ORDER_STOP 0xFE // stop when the current pattern ends; the driver then reports this position
 const u8 group_first[7] = {1, 5, 7, 11, 13, 17, 19};
 const u8 group_last[7] = {4, 6, 10, 12, 16, 18, 20};
 // stack height in rows (0-20) -> group
@@ -223,12 +225,19 @@ u8 level_tempo(void) // 138 BPM on level 1 to 238 on level 9 and up
     return 138 + l * 12 + (l >> 1);
 }
 
-void music_from(u8 mode, u8 order)
+void music_start(void)
 {
-    music = mode;
-    spcPlay(order);
+    music = MUS_PLAY;
+    music_tempo = level_tempo();
+    spcPlay(1);
     spcSetTempo(music_tempo); // spcPlay resets the module's tempo
     music_pos = 255;          // queue the next order once the driver reports this one
+}
+
+void music_end(void)
+{
+    music = MUS_END;
+    music_next = 255; // queue again: the ending replaces the next group
 }
 
 void music_stop(void)
@@ -254,8 +263,13 @@ void update_music(void)
         music_pos = pos;
         music_next = 255;
     }
-    if (music == MUS_END)
-        next = pos == 21 ? 22 : ORDER_STOP;
+    if (music == MUS_END && pos == ORDER_STOP) // the ending is over
+    {
+        music = MUS_OFF;
+        return;
+    }
+    if (music == MUS_END && pos >= ENDING)
+        next = pos == ENDING ? ENDING + 1 : ORDER_STOP;
     else
     {
         g = 0;
@@ -263,6 +277,8 @@ void update_music(void)
             g++;
         if (pos >= group_first[g] && pos < group_last[g])
             next = pos + 1;
+        else if (music == MUS_END)
+            next = ENDING;
         else // last pattern of a group: the next group follows the stack, until the very end of this pattern
         {
             top = BOTTOM + 1;
@@ -933,7 +949,7 @@ void show_result(void)
         {
             center(MSG_ROW, 0, "GAME OVER");
             inmatch[p] = 0; // back to the title unless someone pressed Start
-            music_from(MUS_END, 21);
+            music_end();
         }
         else
         {
@@ -1026,10 +1042,7 @@ void update_game(void)
             state_timer = 30;
             center(MSG_ROW, 0, "GO!");
             if (nplay == 1)
-            {
-                music_tempo = level_tempo();
-                music_from(MUS_PLAY, 1);
-            }
+                music_start();
         }
         break;
 
@@ -1074,16 +1087,23 @@ void update_game(void)
             if (cheer[p])
                 cheer[p]--;
         }
-        if (--state_timer == 0)
-        {
-            n = 0;
-            for (p = 0; p < 4; p++)
-                n += ready[p] || (inmatch[p] && touched[p]);
-            if (n)
-                start_match();
-            else
-                to_title();
-        }
+        if (state_timer && --state_timer)
+            break;
+        // after a lost solo game, the screen stays until the ending music is over, a key or a join
+        n = 0;
+        for (p = 0; p < npads; p++)
+            if (keys_down[p] || ready[p])
+                n = 1;
+        if (music != MUS_OFF && n == 0)
+            break;
+        music_stop();
+        n = 0;
+        for (p = 0; p < 4; p++)
+            n += ready[p] || (inmatch[p] && touched[p]);
+        if (n)
+            start_match();
+        else
+            to_title();
         break;
     }
 }

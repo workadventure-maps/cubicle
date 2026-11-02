@@ -143,8 +143,12 @@ def top_out_goes_back_to_title():
         g.set_row(0, y, FULL ^ (1 << 9))  # nearly full well, column 6 open: no line to clear
     g.press(0, 'b', frames=1)            # lands on the top rows; the next O can't spawn
     g.until(RESULT, 60)
-    g.until(TITLE, 200)
-    assert g.peek('inmatch', 4) == [0, 0, 0, 0]
+    g.run(240)
+    assert g.peek('state') == RESULT     # the game over screen waits for the ending music...
+    g.press(0, 'a', frames=1)            # ...or a key, which stops it
+    g.until(TITLE, 5)
+    g.run(10)
+    assert g.peek('inmatch', 4) == [0, 0, 0, 0] and g.peek('music') == MUS_OFF and g.loudness == 0, g.loudness
 
 
 def speed_rises_in_versus():
@@ -205,13 +209,18 @@ def music():
     play(500, 0)    # the stack drops during 19: 20 still plays, then back to 1
     assert played[-3:] == [19, 20, 1], played
     assert g.peek16('lag_frame_counter') == lag and worst < 200, (g.peek16('lag_frame_counter') - lag, worst)
-    for y in range(4, 22):  # top out: the ending (21-22), then silence
+    for y in range(4, 22):  # top out during pattern 1: 2-4 still play, then the ending (21-22), then silence
         g.set_row(0, y, FULL ^ (1 << 9))
     g.press(0, 'b', frames=1)
     g.until(RESULT, 60)
     assert g.peek('music') == MUS_END
-    play(600, None)
-    assert played[-2:] == [21, 22] and g.loudness == 0, (played, g.loudness)
+    for waited in range(2000):  # the game over screen stays until the music is over
+        if g.peek('state') != RESULT:
+            break
+        play(1, None)
+    g.run(2)
+    assert played[-6:] == [2, 3, 4, 21, 22, 0xFE], played  # 0xFE: the driver stopped after the ending
+    assert waited > 600 and g.peek('state') == TITLE and g.loudness == 0, (waited, g.peek('state'), g.loudness)
     print(f'music: played {played}, busiest frame {worst} scanlines')
 
 
