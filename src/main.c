@@ -4,6 +4,7 @@
 ---------------------------------------------------------------------------------*/
 #include <snes.h>
 #include <string.h>
+#include "music/soundbank.h"
 
 extern char blocks_a_til, blocks_a_pal, blocks_b_til, blocks_b_pal, walls_til, walls_pal;
 extern char font_til, font_tilend, font_pal;
@@ -11,6 +12,11 @@ extern char p1_til, p2_til, p3_til, p4_til;
 extern char p1_pal, p2_pal, p3_pal, p4_pal;
 extern char sfx_lock, sfx_lock_end, sfx_clear, sfx_clear_end, sfx_junk, sfx_junk_end;
 extern char sfx_join, sfx_join_end, sfx_topout, sfx_topout_end;
+extern char SOUNDBANK__;
+extern u8 spc_fread, spc_fwrite; // PVSnesLib's queue of driver commands
+void spcBootMusic(void); // src/music.asm, for our altered SNESMOD driver
+void spcSetTempo(u8 bpm);
+void spcQueueOrder(u8 order);
 
 // Note: initialized globals live in ROM with this compiler, so only tables are initialized.
 // Compiler bug: `a || !b` gives 0 when a is true. Never put a negation right of ||: write `b == 0`.
@@ -196,10 +202,90 @@ void sfx(u8 id)
         sfx_next = id;
 }
 
+// ---- Music ----------------------------------------------------------------------------------
+// Solo games only: in versus, the players talk to each other. "In the Hall of the Mountain King"
+// (music/mountain_king.it): pattern 0 is the opening bar (not played), patterns 1-20 form 7 groups of rising
+// tension, 21-22 end a lost game. A group plays to its end, then the stack height picks the next one (up or
+// down); the level sets the tempo. Our driver (snesmod/sm_spc.asm) takes both from the game.
+#define MUS_OFF 0
+#define MUS_PLAY 1
+#define MUS_END 2
+#define ORDER_STOP 0xFE // stop when the current pattern ends
+const u8 group_first[7] = {1, 5, 7, 11, 13, 17, 19};
+const u8 group_last[7] = {4, 6, 10, 12, 16, 18, 20};
+// stack height in rows (0-20) -> group
+const u8 height_group[21] = {0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 6, 6};
+u8 music, music_pos, music_next, music_tempo;
+
+u8 level_tempo(void) // 138 BPM on level 1 to 238 on level 9 and up
+{
+    u8 l = level < 8 ? level : 8;
+    return 138 + l * 12 + (l >> 1);
+}
+
+void music_from(u8 mode, u8 order)
+{
+    music = mode;
+    spcPlay(order);
+    spcSetTempo(music_tempo); // spcPlay resets the module's tempo
+    music_pos = 255;          // queue the next order once the driver reports this one
+}
+
+void music_stop(void)
+{
+    if (music != MUS_OFF)
+        spcStop();
+    music = MUS_OFF;
+}
+
+void update_music(void)
+{
+    u8 pos, g, next, p, top;
+    if (music == MUS_OFF)
+        return;
+    if (music == MUS_PLAY && level_tempo() != music_tempo)
+    {
+        music_tempo = level_tempo();
+        spcSetTempo(music_tempo);
+    }
+    pos = spcGetMusicPosition();
+    if (pos != music_pos)
+    {
+        music_pos = pos;
+        music_next = 255;
+    }
+    if (music == MUS_END)
+        next = pos == 21 ? 22 : ORDER_STOP;
+    else
+    {
+        g = 0;
+        while (g < 6 && group_last[g] < pos)
+            g++;
+        if (pos >= group_first[g] && pos < group_last[g])
+            next = pos + 1;
+        else // last pattern of a group: the next group follows the stack, until the very end of this pattern
+        {
+            top = BOTTOM + 1;
+            for (p = 0; p < 4; p++)
+                if (inmatch[p] && high[p] < top)
+                    top = high[p];
+            next = group_first[height_group[BOTTOM + 1 - top]];
+        }
+    }
+    if (next != music_next)
+    {
+        spcQueueOrder(next);
+        music_next = next;
+    }
+}
+
 void init_sound(void)
 {
-    spcBoot();
+    spcBootMusic();
     spcAllocateSoundRegion(12);
+    spcSetBank(&SOUNDBANK__);
+    spcLoad(MOD_MOUNTAIN_KING);
+    music = MUS_OFF;
     spcSetSoundDataEntry(15, 8, 2, &sfx_lock_end - &sfx_lock, &sfx_lock, &sfx_table[0]);
     spcSetSoundDataEntry(15, 8, 2, &sfx_clear_end - &sfx_clear, &sfx_clear, &sfx_table[1]);
     spcSetSoundDataEntry(15, 8, 2, &sfx_junk_end - &sfx_junk, &sfx_junk, &sfx_table[2]);
@@ -209,14 +295,17 @@ void init_sound(void)
     sfx_next = SFX_NONE;
 }
 
-// Starting a sound costs about 40 scanlines, so it waits for a frame with little board work.
+// Starting a sound costs about 40 scanlines, so it waits for a frame with little board work. spcPlaySound
+// first waits until the driver took every queued command, and starting the music keeps it busy 8 to 19
+// frames (it clears and waits for the echo buffer): the game would freeze, so the sound waits instead.
 void update_sound(void)
 {
-    if (sfx_next != SFX_NONE && !heavy && work < 2)
+    if (sfx_next != SFX_NONE && !heavy && work < 2 && spc_fread == spc_fwrite)
     {
         spcPlaySound(sfx_next);
         sfx_next = SFX_NONE;
     }
+    update_music();
     spcProcess();
 }
 
@@ -817,6 +906,7 @@ void start_match(void)
     }
     match_frames = 0;
     vs_level = 0;
+    music_stop(); // a lost game's ending may still play
     state = ST_COUNTDOWN;
     state_timer = 90;
     center(MSG_ROW, 0, "READY");
@@ -843,9 +933,13 @@ void show_result(void)
         {
             center(MSG_ROW, 0, "GAME OVER");
             inmatch[p] = 0; // back to the title unless someone pressed Start
+            music_from(MUS_END, 21);
         }
         else
+        {
             center(MSG_ROW, 0, "NEW CHALLENGER!");
+            music_stop();
+        }
     }
     else if (winner == 255)
         center(MSG_ROW, 0, "DRAW");
@@ -931,6 +1025,11 @@ void update_game(void)
             state = ST_PLAY;
             state_timer = 30;
             center(MSG_ROW, 0, "GO!");
+            if (nplay == 1)
+            {
+                music_tempo = level_tempo();
+                music_from(MUS_PLAY, 1);
+            }
         }
         break;
 

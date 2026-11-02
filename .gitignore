@@ -22,3 +22,7 @@ __pycache__/
 
 # GitHub Pages output
 _site/
+
+# generated sound
+music/soundbank.*
+snesmod/sm_spc.bin
