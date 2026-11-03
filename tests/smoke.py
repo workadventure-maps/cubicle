@@ -309,11 +309,13 @@ def open_space_clears():
     holes = open_o_cols(0) | open_o_cols(1)
     g.set_row32(20, 0xFFFFFFFF ^ holes)
     g.set_row32(21, 0xFFFFFFFF ^ holes)
+    g.poke('level_lines', [5])         # 2 players: a level every 7 lines
     g.press(0, 'b', frames=1)
     assert g.peek16('lines') == 0      # P2's columns are still open
     g.press(1, 'b', frames=1)          # the team clears 2 lines: one score
     g.run(30)
     assert g.peek16('lines') == 2 and g.peek16('score_lo') == 40, (g.peek16('lines'), g.peek16('score_lo'))
+    assert (g.peek('level'), g.peek('level_lines')) == (1, 0)
     assert [g.row32(y) for y in range(2, 22)] == [0xFFFE0007] * 20
     assert g.peek('pending', 4) == [0, 0, 0, 0]  # no junk in open space
 

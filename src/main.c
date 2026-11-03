@@ -113,9 +113,10 @@ const u8 kick[5] = {0, 255, 1, 254, 2};
 #define SEQ_LEN 252       // 36 shuffled sets of the 7 pieces; versus: all players read it from the start
 #define MAX_JUNK 20
 #define BREAK_FRAMES 600 // open space: a player who touched nothing for 10 s gets no new piece (coffee break)
-// fall speed in frames per row: versus every 30 seconds, solo every 10 lines
+// fall speed in frames per row: versus every 30 seconds, solo and open space every level_goal[nplay] lines
 const u8 vs_speed[8] = {36, 24, 16, 10, 6, 4, 2, 1};
 const u8 solo_speed[16] = {48, 40, 33, 27, 22, 18, 15, 12, 10, 8, 7, 6, 5, 4, 3, 2};
+const u8 level_goal[5] = {0, 10, 7, 5, 4}; // lines per level by player count (1: solo): wider lines fill slower
 const u8 line_points[5] = {0, 1, 4, 9, 16}; // x 10 x (level + 1)
 const u8 bit_count[16] = {0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
 
@@ -720,9 +721,9 @@ void add_score(u8 n)
     }
     lines += n;
     level_lines += n;
-    if (level_lines >= 10)
+    if (level_lines >= level_goal[nplay])
     {
-        level_lines -= 10;
+        level_lines -= level_goal[nplay];
         if (level < 15)
             level++;
     }
