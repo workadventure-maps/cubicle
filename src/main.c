@@ -105,7 +105,7 @@ const u8 kick[5] = {0, 255, 1, 254, 2};
 #define SOFT_DROP 2       // frames per row while Down is held
 #define CLEAR_FRAMES 20   // full rows flash before they collapse
 #define SPAWN_FRAMES 6    // pause between a lock and the next piece
-#define SEQ_LEN 252       // 36 shuffled sets of the 7 pieces, shared by all players in a match
+#define SEQ_LEN 252       // 36 shuffled sets of the 7 pieces; versus: all players read it from the start
 #define MAX_JUNK 20
 #define BREAK_FRAMES 600 // open space: a player who touched nothing for 10 s gets no new piece (coffee break)
 // fall speed in frames per row: versus every 30 seconds, solo every 10 lines
@@ -1122,7 +1122,9 @@ void start_match(void)
         dirty[p] = 0;
         phase[p] = W_SETTLE;
         wait[p] = 0;
-        seqi[p] = 0;
+        // open space: each player starts a quarter of the deck further, so teammates get different pieces
+        // ponytail: one deck; a player 63 pieces ahead of a teammate gets the pieces that teammate had
+        seqi[p] = coop ? p * (SEQ_LEN / 4) : 0;
         das[p] = 1;
         high[p] = BOTTOM + 1;
         if (coop)

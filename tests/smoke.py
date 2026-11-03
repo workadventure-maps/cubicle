@@ -298,6 +298,7 @@ def open_space_layout():
     assert g.row32(10) == 0xFF000007 and g.row32(22) == 0xFFFFFFFF   # 21 columns in bits 3..23
     assert g.peek('phase', 4) == [W_FALL, W_FALL, W_OFF, W_FALL]
     assert [g.peek('pcol', 4)[p] for p in (0, 1, 3)] == [5, 12, 19]  # each above its own 7 columns
+    assert [g.peek('seqi', 4)[p] for p in (0, 1, 3)] == [1, 64, 190]  # each from its own part of the deck
 
 
 def open_space_clears():
@@ -471,7 +472,7 @@ def open_space_worst_frame():
 def open_space_battle():
     """4 players at random in one well, with nearly full rows slipped in: the board, the overlay and the screen
     stay consistent, within the budgets."""
-    rng = random.Random(4)
+    rng = random.Random(3)  # (a seed whose random play clears a line)
     g = start([0, 1, 2, 3], open_space=True)
     lag = g.peek16('lag_frame_counter')
     checks, cleared, worst, games, recent = 0, 0, 0, 0, []
