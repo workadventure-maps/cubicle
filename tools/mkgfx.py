@@ -2,6 +2,7 @@
 
   blocks_a.png  BG palette 2: blank, blocks and landing outlines of pieces 0-3, empty cell, flash
   blocks_b.png  BG palette 3: blank, blocks and outlines of pieces 4-6, junk block
+  blocks_p.png  BG palette 5: blocks_a's tiles in the players' colors (open space); only its palette is used
   walls.png     BG palette 4: cubicle partitions between the wells, their caps, the floor
   font.png      96 ASCII glyphs (32..127) with a drop shadow, 4 colors (2bpp)
   p1..p4.png    Woka sheets, 8 frames of 32x32 (all in VRAM at once): 21x21 standing facing down, left, right,
@@ -22,6 +23,9 @@ KEY = (255, 0, 255)  # index 0, transparent, used nowhere else
 PIECES = [(248, 128, 56), (64, 192, 176), (248, 200, 48), (72, 104, 248),
           (112, 200, 72), (232, 72, 152), (152, 96, 232)]
 JUNK = (136, 140, 156)
+# Open space: a block shows who placed it, in the cabinet's badge colors (P1 red, P2 blue, P3 green, P4 yellow),
+# the colors of the player labels (hud_colors in src/main.c)
+PLAYER_COLORS = [(248, 64, 64), (64, 128, 248), (64, 224, 64), (248, 224, 32)]
 WELL_BG, WELL_DOT, WHITE = (24, 28, 48), (56, 64, 96), (248, 248, 248)
 
 
@@ -177,6 +181,7 @@ def to_indexed_with(rgba, colors):
 os.makedirs(OUT, exist_ok=True)
 blocks(PIECES[:4], None).save(os.path.join(OUT, 'blocks_a.png'))
 blocks(PIECES[4:], JUNK).save(os.path.join(OUT, 'blocks_b.png'))
+blocks(PLAYER_COLORS, None).save(os.path.join(OUT, 'blocks_p.png'))
 walls().save(os.path.join(OUT, 'walls.png'))
 font().save(os.path.join(OUT, 'font.png'))
 for i, p in enumerate(PLAYERS):

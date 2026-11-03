@@ -36,7 +36,8 @@ The partitions come down: one shared well for the whole team.
 | Topic | Decision |
 |---|---|
 | Choosing it | On the title, Left/Right on any pad switch between `< VERSUS >` and `< OPEN SPACE >`. Select on any pad switches the next game's mode at any time ("NEXT: OPEN SPACE" shows for 2 s); the game in progress keeps its rules. The countdown names the mode. Alone, both modes are the solo game; a second player's Start interrupts it as in versus ("NEW COWORKER!"). |
-| Well | 7 columns per player (14, 21 or 28) by 20 rows, so every player places as many pieces per line as alone. Each player's Woka, label and next piece sit above their own 7 columns, and their pieces come in there, but can go anywhere. Only the two outer walls are drawn. |
+| Well | 7 columns per player (14, 21 or 28) by 20 rows, so every player places as many pieces per line as alone. Each player's Woka, label and next piece sit above their own 7 columns, and their first piece comes in there, but pieces can go anywhere. Each next piece comes in above where the player's last one locked (its box column, moved in if a piece turned against a wall would stick out), so nobody walks back across the well every time (2026-11-03). Only the two outer walls are drawn. |
+| Colors (2026-11-03) | Every block is in its player's badge color (P1 red, P2 blue, P3 green, P4 yellow, like the labels), not its type's: the team sees who placed what. The next-piece box too. Same block tiles as blocks_a, in a fourth BG palette (5). |
 | Teammates' pieces | Solid. A piece can't move or turn into a teammate's falling piece. A piece resting on one neither falls nor locks: it waits. A hard drop onto one stops on it without locking. A new piece whose place is taken by a teammate's piece waits (no top-out); one blocked by the stack ends the game. The landing outline shows where the piece lands on the stack, ignoring teammates' pieces, and is only drawn on empty cells. |
 | Clears | Full rows across the whole width. When they collapse, falling pieces above them move down with the rows: everything in the well shifts together, and each piece keeps its place relative to the stack (so nothing needs redrawing). |
 | Score and speed | One team score with the solo rules: points times level, a level every 10 lines, solo fall speeds. No junk. Best team score shown on the title (TEAM), kept until the cabinet reboots. |
@@ -54,7 +55,7 @@ cabinet. Polish (music, attract demo, high-score table, clear animations) waits 
 ## Technical notes
 
 - **Layout.** Mode 1. BG1: wells, partitions, next pieces and the title logo (tiles at VRAM $2000: three sets of
-  16 tiles, BG palettes 2-4). BG3: text (font $6000, map $7000). BG1 map at $7400. BG1 and BG3 scroll 4 px left,
+  16 tiles, BG palettes 2-4; palette 5 shows blocks_a's tiles in the players' colors). BG3: text (font $6000, map $7000). BG1 map at $7400. BG1 and BG3 scroll 4 px left,
   so a well (7 cells) plus a separator column is 64 px and the first separator straddles both screen edges.
   BG2 is unused. Wokas: OAM entries 0-3, 32x32, all 8 frames of each player in VRAM at once ($0000-$1FFF), so a
   pose change is a tile number, no upload.
@@ -79,8 +80,8 @@ cabinet. Polish (music, attract demo, high-score table, clear animations) waits 
   under a tall stack) only runs on a frame with no other work, and the other pieces wait that frame (their new
   presses are kept for the next). A falling piece with no input and no row to fall this frame costs nothing.
   One Woka sprite is updated per frame (all four in C cost 25 scanlines), and the score panel is redrawn one
-  number per frame. Measured: 4 idle players cost 60 scanlines; busiest frames 175 (all four clear lines on the
-  same frame), 165 (random 4-player battle with junk), 140 (open-space clear under a tall stack) and 169
+  number per frame. Measured: 4 idle players cost 60 scanlines; busiest frames 177 (all four clear lines on the
+  same frame), 161 (random 4-player battle with junk), 140 (open-space clear under a tall stack) and 177
   (random 4-player open-space game); `tests/smoke.py` fails above 200 or on any lag frame during play.
 - **Presses.** The game finds new presses itself by comparing each pad with the previous frame it saw, not with
   PVSnesLib's `padsDown`, which is computed per VBlank: a frame that runs late would lose a press.

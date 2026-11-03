@@ -302,10 +302,13 @@ draw_piece_cells:
     sta.w dw_p
     jsr erase
     ldx.w dw_p
+    lda.w pcolor,x
+    and #$00FF
+    asl a
+    sta.w dw_tilex          ; pcolor * 2, into the tile tables
     lda.w ptype,x           ; shape index = ptype * 16 + prot * 4
     and #$00FF
     asl a
-    sta.w dw_tilex          ; ptype * 2, into the tile tables
     asl a
     asl a
     asl a
@@ -1036,7 +1039,8 @@ find_top:
     rtl
 
 ;---------------------------------------------------------------------------------
-; void draw_next_cells(u8 p, u8 t): piece t in player p's next-piece box (4x2 cells right of the Woka)
+; void draw_next_cells(u8 p, u8 t, u8 c): piece t in color c (piece_tile index) in player p's next-piece box (4x2
+; cells right of the Woka)
 draw_next_cells:
     php
     rep #$30
@@ -1073,7 +1077,8 @@ draw_next_cells:
     inx
 @drawn:
     stx.w dw_base
-    lda.w dw_s
+    lda 7,s                 ; color
+    and #$00FF
     asl a
     tax
     lda.l piece_tile,x

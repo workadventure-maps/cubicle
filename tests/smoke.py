@@ -21,6 +21,9 @@ W_LOCK = 4
 T_EMPTY, T_FLASH, T_JUNK = 0x0809, 0x080A, 0x0C14
 PIECE_TILES = {0x0801, 0x0802, 0x0803, 0x0804, 0x0C11, 0x0C12, 0x0C13}
 GHOST_TILES = {0x0805, 0x0806, 0x0807, 0x0808, 0x0C15, 0x0C16, 0x0C17}
+PLAYER_TILES = [0x1401, 0x1402, 0x1403, 0x1404]  # open space: blocks in P1..P4's color, their outlines + 4
+PIECE_TILES |= set(PLAYER_TILES)
+GHOST_TILES |= {t + 4 for t in PLAYER_TILES}
 # open space: player k's O piece spawns on columns 7k+2 and 7k+3 of the shared well
 def open_o_cols(k):
     return 3 << (7 * k + 5)
@@ -362,6 +365,24 @@ def piece_rests_on_teammate():
     assert g.row32(21) & open_o_cols(0) and g.row32(19) & open_o_cols(0)
 
 
+def open_space_colors_and_spawn():
+    g = start([0, 1], seq=PIECE_I, open_space=True)
+    g.press(1, 'up', frames=1)         # P2 turns upright (box column 2) and goes to the right wall
+    g.held[1] = {'right'}
+    g.run(40)
+    g.held[1] = set()
+    assert (g.peek('prot', 2)[1], g.peek('pcol', 2)[1]) == (1, 14), (g.peek('prot', 2), g.peek('pcol', 2))
+    g.press(1, 'b', frames=1)
+    col0 = g.peek('col0')              # its blocks: the last column, rows 18-21, in P2's color
+    assert [g.peek16('bgmap', (y + 4) * 32 + col0 + 13) for y in range(18, 22)] == [PLAYER_TILES[1]] * 4
+    g.run(10)
+    # the next one comes in where it locked, moved left so it fits flat
+    assert g.peek('phase', 2)[1] == W_FALL and g.peek('pcol', 2)[1] == 13, (g.peek('phase', 2), g.peek('pcol', 2))
+    assert g.peek16('bgmap', 3 * 32 + g.peek('zcol', 4)[1] + 3) == PLAYER_TILES[1]  # P2's next piece, its color
+    g.press(0, 'b', frames=1)          # P1's flat I where it came in (columns 2-5), in P1's color
+    assert [g.peek16('bgmap', 25 * 32 + col0 + c) for c in range(1, 7)] == [T_EMPTY] + [PLAYER_TILES[0]] * 4 + [T_EMPTY]
+
+
 def coffee_break():
     g = start([0, 1], seq=PIECE_O, open_space=True)
     g.press(1, 'b', frames=1)
@@ -472,7 +493,7 @@ def open_space_worst_frame():
 def open_space_battle():
     """4 players at random in one well, with nearly full rows slipped in: the board, the overlay and the screen
     stay consistent, within the budgets."""
-    rng = random.Random(3)  # (a seed whose random play clears a line)
+    rng = random.Random(7)  # (a seed whose random play clears lines)
     g = start([0, 1, 2, 3], open_space=True)
     lag = g.peek16('lag_frame_counter')
     checks, cleared, worst, games, recent = 0, 0, 0, 0, []
@@ -616,6 +637,7 @@ if __name__ == '__main__':
     teammates_pieces_are_solid()
     spawn_waits_for_teammate()
     piece_rests_on_teammate()
+    open_space_colors_and_spawn()
     coffee_break()
     everyone_on_break()
     team_tops_out()
