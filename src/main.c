@@ -6,7 +6,7 @@
 #include <string.h>
 #include "music/soundbank.h"
 
-extern char blocks_a_til, blocks_a_pal, blocks_b_til, blocks_b_pal, walls_til, walls_pal;
+extern char blocks_a_til, blocks_a_pal, blocks_b_til, blocks_b_pal, blocks_p_pal, walls_til, walls_pal;
 extern char font_til, font_tilend, font_pal;
 extern char p1_til, p2_til, p3_til, p4_til;
 extern char p1_pal, p2_pal, p3_pal, p4_pal;
@@ -58,7 +58,7 @@ const u8 open_scroll[5] = {4, 4, 0, 4, 0};
 
 // VRAM (words): Woka frames $0000-$1FFF (P1..P4 at $0000, $0800, $1000, $1800), BG1 tiles $2000 (blocks_a, blocks_b, walls: 16 tiles each),
 // BG3 font $6000, BG3 text map $7000, BG1 map $7400.
-// CGRAM: text palettes 0..4 (colors 0..19), BG palettes 2..4, sprite palettes 8..11.
+// CGRAM: text palettes 0..4 (colors 0..19), BG palettes 2..5, sprite palettes 8..11.
 #define VRAM_BG_TILES 0x2000
 #define VRAM_FONT 0x6000
 #define VRAM_TEXT_MAP 0x7000
@@ -69,6 +69,7 @@ const u8 open_scroll[5] = {4, 4, 0, 4, 0};
 #define PAL_A 0x0800
 #define PAL_B 0x0C00
 #define PAL_W 0x1000
+#define PAL_P 0x1400 // blocks_a's tiles in the players' colors
 #define T_EMPTY (PAL_A | 9)
 #define T_FLASH (PAL_A | 10)
 #define T_JUNK (PAL_B | 20)
@@ -81,8 +82,12 @@ const u8 open_scroll[5] = {4, 4, 0, 4, 0};
 #define T_FLOOR (PAL_W | 39)
 #define T_FLOOR_FIRST (PAL_W | 40)
 #define T_FLOOR_LAST (PAL_W | 41)
-const u16 piece_tile[7] = {PAL_A | 1, PAL_A | 2, PAL_A | 3, PAL_A | 4, PAL_B | 17, PAL_B | 18, PAL_B | 19};
-const u16 ghost_tile[7] = {PAL_A | 5, PAL_A | 6, PAL_A | 7, PAL_A | 8, PAL_B | 21, PAL_B | 22, PAL_B | 23};
+// by color: the 7 piece types, then (open space) players 1-4
+#define COLOR_P1 7
+const u16 piece_tile[11] = {PAL_A | 1, PAL_A | 2, PAL_A | 3, PAL_A | 4, PAL_B | 17, PAL_B | 18, PAL_B | 19,
+                            PAL_P | 1, PAL_P | 2, PAL_P | 3, PAL_P | 4};
+const u16 ghost_tile[11] = {PAL_A | 5, PAL_A | 6, PAL_A | 7, PAL_A | 8, PAL_B | 21, PAL_B | 22, PAL_B | 23,
+                            PAL_P | 5, PAL_P | 6, PAL_P | 7, PAL_P | 8};
 
 // ---- Pieces ---------------------------------------------------------------------------------
 // I O T S Z J L in their spawn orientation: 4 rows of the bounding box, bit 0 = leftmost column.
@@ -188,6 +193,7 @@ u8 wcells[4];          // its width in cells
 u16 wall_lo[4], wall_hi[4]; // its empty row
 u8 phase[4];
 u8 ptype[4], prot[4], pcol[4], pyy[4], gy[4]; // pcol: box column + 3; pyy, gy: box row of piece and ghost
+u8 pcolor[4];        // its color (piece_tile index): its type, or in open space its player
 u8 pk[4];            // byte of the board row where each piece's masks start (pcol / 8)
 u16 pmask[20];       // each falling piece's 4 row masks, shifted by pcol % 8 (p * 4), then candidate masks (TM)
 #define TM 16
@@ -195,7 +201,7 @@ u16 drawn[32];       // bgmap cells showing each well's piece (0-3) and ghost (4
 u16 drawn_t[32];     // the tile drawn there
 u8 col0[4];          // screen column of each player's well's first cell
 u8 zcol[4];          // screen column of each player's own 7 columns (Woka, next piece, label)
-u8 spcol[4];         // pcol of a new piece
+u8 spcol[4];         // pcol of a new piece (open space: where the player's last piece locked)
 u8 grav[4], lockt[4], resets[4], das[4], wait[4];
 u8 airborne[4];      // the last test found room below the piece, and it hasn't moved down since
 u8 pending[4];       // junk rows on their way
@@ -540,7 +546,7 @@ u8 lock_rows(u8 p);          // the piece joins the board: 255 if locked above t
 void collapse(u8 p);         // full rows go away; teammates' falling pieces move down with their rows
 void add_junk_rows(u8 p, u8 n, u8 gap);
 void gray_well_cells(u8 p);
-void draw_next_cells(u8 p, u8 t);
+void draw_next_cells(u8 p, u8 t, u8 c); // c: its color
 u16 dw_p, dw_slot, dw_s, dw_tilex, dw_col, dw_y0, dw_tile, dw_dst, dw_base, dw_k, dw_n; // their scratch
 u16 dw_w, dw_wlo, dw_whi, dw_ghost;
 
@@ -648,30 +654,43 @@ void add_junk(u8 p)
         top_out(p); // pushed out of the top
 }
 
+// open space: a player's pieces are all in their color
+u8 color(u8 p, u8 t)
+{
+    return coop ? COLOR_P1 + p : t;
+}
+
 void draw_next(u8 p)
 {
-    draw_next_cells(p, seq[seqi[p]]);
+    u8 t = seq[seqi[p]];
+    draw_next_cells(p, t, color(p, t));
     mark_bg(NEXT_ROW, NEXT_ROW + 1);
 }
 
-// the next piece, above the player's own columns. In open space a teammate's falling piece in the way only
-// delays it: the spawn is tried again next frame.
+// the next piece, above the player's own columns (open space: above where their last piece locked). In open
+// space a teammate's falling piece in the way only delays it: the spawn is tried again next frame.
 void spawn(u8 p)
 {
-    u8 t = seq[seqi[p]], ok;
+    u8 t = seq[seqi[p]], c = spcol[p], edge, ok;
+    edge = wcells[p] + 3 - piece_box[t]; // in spawn orientation a piece fills its box's first piece_box columns
+    if (c > edge)
+        c = edge; // the last piece was turned against the right wall
+    if (c < 3)
+        c = 3;   // or the left one
     ptype[p] = t;
+    pcolor[p] = color(p, t);
     prot[p] = 0;
-    pcol[p] = spcol[p];
+    pcol[p] = c;
     pyy[p] = t == PIECE_I ? HID - 1 : HID;
     grav[p] = 0;
     lockt[p] = 0;
     resets[p] = 0;
     airborne[p] = 0;
-    ok = place(p, t << 4, spcol[p]);
+    ok = place(p, t << 4, c);
     if (coop && ok == 0)
     {
         solid = 0;
-        ok = place(p, t << 4, spcol[p]);
+        ok = place(p, t << 4, c);
         solid_on();
         if (ok)
             return;
@@ -727,6 +746,8 @@ void lock_piece(u8 p)
     if (n)
         mark_bg(WELL_TOP, FLOOR_ROW - 1); // the full rows flash
     phase[p] = W_SETTLE;
+    if (coop)
+        spcol[p] = pcol[p]; // the next piece comes in above this one
     cleared[p] = n;
     wait[p] = n ? CLEAR_FRAMES : SPAWN_FRAMES;
     if (n)
@@ -1527,6 +1548,7 @@ int main(void)
     dmaCopyCGram(&blocks_a_pal, 32, 32);
     dmaCopyCGram(&blocks_b_pal, 48, 32);
     dmaCopyCGram(&walls_pal, 64, 32);
+    dmaCopyCGram(&blocks_p_pal, 80, 32);
 
     // text palettes 0..4: white, then each player's color; color 0 is also the backdrop
     for (i = 0; i < 20; i++)

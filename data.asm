@@ -10,6 +10,8 @@ blocks_b_til:
 .incbin "gfx/blocks_b.pic"
 blocks_b_pal:
 .incbin "gfx/blocks_b.pal"
+blocks_p_pal:
+.incbin "gfx/blocks_p.pal"
 walls_til:
 .incbin "gfx/walls.pic"
 walls_pal:

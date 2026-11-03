@@ -19,7 +19,8 @@ In your browser: https://workadventure-maps.github.io/cubicle/ (built from `main
 - Versus: clearing 2 or more lines at once sends junk rows to every opponent. Last well standing wins the match;
   the pieces fall faster every 30 seconds. A player who doesn't touch the pad during a whole match (someone who
   left the cabinet) sits out the next one until they press Start again.
-- Open space: 7 columns per player, one team score. Teammates' falling pieces are solid. Someone who doesn't
+- Open space: 7 columns per player, one team score. Each player's blocks are in their color, and their next
+  piece comes in above where the last one landed. Teammates' falling pieces are solid. Someone who doesn't
   touch the pad for 10 seconds goes on a coffee break: no new pieces for them until they press a button.
 - Alone, you get music: "In the Hall of the Mountain King" gets more tense as your stack rises and faster as
   your level goes up. Games of 2 or more players have no music, so the players can hear each other.
