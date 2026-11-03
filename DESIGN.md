@@ -25,7 +25,8 @@ own well size and rules.
 | Solo | Endless score attack: speed rises with lines cleared, score until top-out. Best score shown on the title while the cabinet runs (no saves: a cabinet always boots fresh). |
 | Look | Plain bevelled blocks in our own colors (no piece gets the color other games give it). Wells are cubicles: partition panels between them. Above each well, the player's Woka (21x21, hand-drawn frames from Bombadventure's `assets/sprites/`: shrinking the 32x32 Woka blurs it) hops on clears, looks around nervously when the stack is within 6 rows of the top, and turns its back when out. Wokas' outfits follow the cabinet badge colors (P1 red, P2 blue, P3 green, P4 yellow-ish). Title: CUBICLES spelled in blocks, the four Wokas full size; generated title art can come later. |
 | Art rights | Only Woka parts designed and owned by WorkAdventure (`admin/public/wokas`), as in Bombadventure. |
-| Sound | Placeholder effects: lock, clear, junk incoming, join, top-out. No move or rotate sound (starting a sound costs ~40 scanlines, and four players move all the time). No music yet. |
+| Sound | Placeholder effects: lock, clear, junk incoming, join, top-out. No move or rotate sound (starting a sound costs ~40 scanlines, and four players move all the time). |
+| Music (2026-11-01) | Solo games only: in versus and open space, the players around the cabinet talk to each other. Grieg's "In the Hall of the Mountain King", from the public-domain Mutopia score (#1888, Grieg's own piano version), arranged by `tools/mkmod.py` into `music/mountain_king.it` with synthesized chip instruments; the .it is the source now (edit it in a tracker). It follows the game: pattern 0 (the opening bar) is never played; patterns 1-20 form 7 groups of rising tension (1-4, 5-6, 7-10, 11-12, 13-16, 17-18, 19-20); a group always plays to its end, then the stack height picks the next group, up or down (rows 0-6, 7-8, 9-10, 11-12, 13-14, 15-16, 17+); the tempo follows the level, 138 BPM on level 1 to 238 on level 9 and up. Game over lets the current group play to its end, then plays the ending (21-22), then silence; the GAME OVER screen stays until the ending is over or a key is pressed (after its usual 3 seconds), and leaving early stops the music. A challenger interrupting a solo game stops the music (nobody lost). Since patterns play in any order, each one starts channels 1-6 with a note or a note-off (`===`), or a note from the previous pattern can ring forever: keep that when editing the .it, `make test` checks it. |
 | License | MIT, code and ROM, public under workadventure-maps like Bombadventure. |
 
 ## Open space: the co-op mode (2026-11-01)
@@ -89,3 +90,15 @@ cabinet. Polish (music, attract demo, high-score table, clear animations) waits 
   them cost ~110 scanlines. Numbers are printed by subtracting powers of ten, and the level counts its own lines.
 - **VBlank.** RAM copies of both maps, dirty row ranges, at most 24 BG rows and 8 text rows per frame. Building
   a match redraws the whole screen in C and may lag a frame or two behind the countdown.
+- **Music driver.** PVSnesLib's SNESMOD driver can't set the tempo from the game (pattern `Txx` is clamped to
+  80-200 BPM) or pick the next pattern. `snesmod/sm_spc.asm` is an altered copy of PVSnesLib 4.6.0's driver
+  source (zlib) with two commands: $0C sets the tempo, $0D queues the order to play when the current pattern
+  ends ($FE stops there and reports position $FE, so the game knows the ending is over). The game re-queues the next order every frame during a group's last pattern, so the
+  jump uses the stack height at the very end. PVSnesLib links its own driver inside `libc.obj`, so
+  `src/music.asm` has `spcBootMusic` (its `spcBoot`, uploading ours) and the two calls, which go through
+  PVSnesLib's command queue; all other `spc*` functions work unchanged. `spcPlay` resets the tempo to the
+  module's, so the game sends the tempo after it. Starting the module keeps the driver busy 8-19 frames
+  (clearing and waiting for the echo buffer), and `spcPlaySound` waits for queued commands first: a sound effect
+  starts only once the queue is empty, or the game would freeze. Loading the module at boot takes ~35 frames.
+  The driver's timer runs ~2% slower than a tracker at the same tempo. Memory: driver to $19C1, module from
+  $1A00 (22 KB), echo buffer (6 KB) under the effects' stream region at the top.

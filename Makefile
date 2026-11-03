@@ -7,7 +7,21 @@ export ROMTITLE := CUBICLES
 export SRC := src
 export FASTROM := 1
 
+# music: SNESMOD modules (made by tools/mkmod.py, then edited in a tracker), converted to a soundbank in bank 5
+AUDIOFILES := music/mountain_king.it
+export SOUNDBANK := music/soundbank
+
 include ${PVSNESLIB_HOME}/devkitsnes/snes_rules
+
+SMCONVFLAGS := -s -o $(SOUNDBANK) -V -b 5
+$(SRC)/main.ps: $(SOUNDBANK).asm
+
+# our altered SNESMOD driver (snesmod/sm_spc.asm), uploaded by spcBootMusic in src/music.asm
+snesmod/sm_spc.bin: snesmod/sm_spc.asm snesmod/sm_spc.link
+	cd snesmod && $(PVSNESLIB_HOME)/devkitsnes/bin/wla-spc700 -o sm_spc.obj sm_spc.asm && \
+		$(PVSNESLIB_HOME)/devkitsnes/bin/wlalink -b sm_spc.link sm_spc.bin
+
+$(SRC)/music.obj: snesmod/sm_spc.bin
 
 .PHONY: all gfx test site
 

@@ -1,6 +1,7 @@
 """Headless gameplay and budget checks on the snes9x core: run with `make test`."""
 import os
 import random
+import struct
 import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
@@ -14,6 +15,7 @@ W_OFF, W_DYING, W_FALL, W_SETTLE = range(4)
 ROWS, BOTTOM, WALLS, FULL, CELLS = 26, 21, 0xFC07, 0xFFFF, 0x03F8
 PIECE_I, PIECE_O = 0, 1
 O_COLS = 0x60  # an O piece at its spawn column covers columns 2 and 3 (bits 5 and 6)
+MUS_OFF, MUS_PLAY, MUS_END = range(3)
 W_LOCK = 4
 # BG1 tiles (src/main.c)
 T_EMPTY, T_FLASH, T_JUNK = 0x0809, 0x080A, 0x0C14
@@ -66,7 +68,8 @@ class Game(Snes):
 def start(players, seq=None, open_space=False):
     """A match with these players; seq: one piece type for every piece, to make drops predictable."""
     g = Game(ROM)
-    g.run(30)
+    g.until(TITLE, 120)  # booting loads the music: about 35 frames
+    g.run(2)
     if open_space:
         g.press(0, 'right', frames=2)  # Left/Right on the title switch the mode
         assert g.peek('mode') == 1
@@ -133,7 +136,7 @@ def challenger_interrupts_solo():
     g.press(0, 'left', frames=2)
     g.press(1, 'start', frames=2)
     g.run(3)
-    assert g.peek('state') == RESULT
+    assert g.peek('state') == RESULT and g.peek('music') == MUS_OFF  # nobody lost: no ending
     g.until(COUNTDOWN, 200)
     assert g.peek('inmatch', 4) == [1, 1, 0, 0] and g.peek('nplay') == 2
 
@@ -163,8 +166,12 @@ def top_out_goes_back_to_title():
         g.set_row(0, y, FULL ^ (1 << 9))  # nearly full well, column 6 open: no line to clear
     g.press(0, 'b', frames=1)            # lands on the top rows; the next O can't spawn
     g.until(RESULT, 60)
-    g.until(TITLE, 200)
-    assert g.peek('inmatch', 4) == [0, 0, 0, 0]
+    g.run(240)
+    assert g.peek('state') == RESULT     # the game over screen waits for the ending music...
+    g.press(0, 'a', frames=1)            # ...or a key, which stops it
+    g.until(TITLE, 5)
+    g.run(10)
+    assert g.peek('inmatch', 4) == [0, 0, 0, 0] and g.peek('music') == MUS_OFF and g.loudness == 0, g.loudness
 
 
 def speed_rises_in_versus():
@@ -176,11 +183,68 @@ def speed_rises_in_versus():
 
 
 def sound():
-    g = start([0])
-    g.run(30)
-    assert g.loudness == 0
+    g = start([0, 1])  # versus has no music: the players talk to each other
+    g.run(120)
+    assert g.peek('music') == MUS_OFF and g.loudness == 0, g.loudness
     g.press(0, 'b', frames=3)
     assert g.loudness > 1000, g.loudness  # lock
+
+
+def patterns_start_silent():
+    # the game plays patterns in any order: each one must start channels 1-6 with a note or a note-off, or a
+    # note left on at the end of the previous pattern never stops (check this after editing the .it in a tracker)
+    d = open(os.path.join(ROOT, 'music', 'mountain_king.it'), 'rb').read()
+    orders, ins, smp, pats = struct.unpack('<4H', d[0x20:0x28])
+    table = 0xC0 + orders + 4 * (ins + smp)
+    for k in range(pats):
+        p, mask, notes = struct.unpack('<I', d[table + 4 * k:table + 4 * k + 4])[0] + 8, {}, set()
+        while d[p]:  # first row of the packed pattern
+            ch = (d[p] & 0x7f) - 1
+            if d[p] & 0x80:
+                p += 1
+                mask[ch] = d[p]
+            m = mask[ch]
+            if m & 1:
+                notes.add(ch)
+            p += 1 + (m & 1) + bool(m & 2) + bool(m & 4) + 2 * bool(m & 8)
+        assert set(range(6)) <= notes, f'pattern {k}: channels {[c + 1 for c in sorted(set(range(6)) - notes)]} may hold a note'
+
+
+def music():
+    # solo: a group of patterns plays to its end, then the stack height picks the next group; level sets tempo
+    g = start([0], seq=PIECE_O)
+    g.poke('level', [8])  # level 9: 238 BPM, about 250 frames per pattern
+    lag, worst, played = g.peek16('lag_frame_counter'), 0, []
+
+    def play(frames, height):
+        nonlocal worst
+        for _ in range(frames):
+            if height is not None:
+                g.poke('high', [BOTTOM + 1 - height] * 4)
+                g.poke('grav', [0] * 4)  # the piece hangs: no lock measures the real stack
+            g.run(1)
+            if g.peek('state') == PLAY:  # not the title rebuilt after the game over
+                worst = max(worst, frame_cost(g))
+            if not played or g.peek('music_pos') != played[-1]:
+                played.append(g.peek('music_pos'))
+    play(1100, 18)  # 18 rows: group 1-4 ends, then 19-20
+    assert g.peek('music_tempo') == 238 and played[-5:] == [1, 2, 3, 4, 19], played
+    play(500, 0)    # the stack drops during 19: 20 still plays, then back to 1
+    assert played[-3:] == [19, 20, 1], played
+    assert g.peek16('lag_frame_counter') == lag and worst < 200, (g.peek16('lag_frame_counter') - lag, worst)
+    for y in range(4, 22):  # top out during pattern 1: 2-4 still play, then the ending (21-22), then silence
+        g.set_row(0, y, FULL ^ (1 << 9))
+    g.press(0, 'b', frames=1)
+    g.until(RESULT, 60)
+    assert g.peek('music') == MUS_END
+    for waited in range(2000):  # the game over screen stays until the music is over
+        if g.peek('state') != RESULT:
+            break
+        play(1, None)
+    g.run(2)
+    assert played[-6:] == [2, 3, 4, 21, 22, 0xFE], played  # 0xFE: the driver stopped after the ending
+    assert waited > 600 and g.peek('state') == TITLE and g.loudness == 0, (waited, g.peek('state'), g.loudness)
+    print(f'music: played {played}, busiest frame {worst} scanlines')
 
 
 def wokas_match_art():
@@ -206,7 +270,8 @@ def wokas_match_art():
 
 def mode_switches():
     g = Game(ROM)
-    g.run(30)
+    g.until(TITLE, 120)
+    g.run(2)
     g.press(1, 'right', frames=2)
     assert g.peek('mode') == 1
     g.press(2, 'left', frames=2)       # any pad, either way
@@ -541,6 +606,8 @@ if __name__ == '__main__':
     top_out_goes_back_to_title()
     speed_rises_in_versus()
     sound()
+    patterns_start_silent()
+    music()
     wokas_match_art()
     mode_switches()
     open_space_layout()
