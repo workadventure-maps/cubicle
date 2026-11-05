@@ -220,6 +220,7 @@ u16 idle[4];   // frames since the pad was last touched
 u8 brk[4];     // open space: on a coffee break (no new piece until the pad is touched)
 u8 mode;       // MODE_VERSUS or MODE_OPEN, for the next game (title: Left/Right; any time: Select)
 u8 coop;       // this game is open space with 2 or more players
+u8 paused;     // the match is on hold (Start on a playing pad)
 u8 scroll_x, scroll_set; // BG scroll, applied in VBlank
 u16 note_timer;
 u8 nplay, npads;
@@ -1179,6 +1180,7 @@ void start_match(void)
     }
     match_frames = 0;
     vs_level = 0;
+    paused = 0;
     music_stop(); // a lost game's ending may still play
     state = ST_COUNTDOWN;
     state_timer = 90;
@@ -1255,11 +1257,28 @@ void show_result(void)
     state_timer = 180;
 }
 
-// Start on a pad that is not playing: join the next match (or this one, on the title). Select on any pad, or
-// Left/Right on the title, switches the mode of the next game.
+void set_pause(u8 on)
+{
+    paused = on;
+    if (music == MUS_PLAY)
+    {
+        if (on)
+            spcPauseMusic();
+        else
+            spcResumeMusic();
+    }
+    if (on)
+        center(MSG_ROW, 0, "PAUSE");
+    else
+        clear_row(MSG_ROW);
+}
+
+// Start on a pad that is not playing: join the next match (or this one, on the title). Start on a playing pad
+// pauses or resumes the match; a join resumes it too, so a player who paused and left can't block the cabinet.
+// Select on any pad, or Left/Right on the title, switches the mode of the next game.
 void check_joins(void)
 {
-    u8 p, joined = 0, toggle = 0, act;
+    u8 p, joined = 0, toggle = 0, pause = 0, act;
     u16 down;
     act = read_pads(npads);
     for (p = 0; act; p++, act >>= 1)
@@ -1280,7 +1299,11 @@ void check_joins(void)
             joined = 1;
             sfx(SFX_JOIN);
         }
+        else if ((down & KEY_START) && state == ST_PLAY && inmatch[p] && alive(p))
+            pause = 1;
     }
+    if (pause || (joined && paused))
+        set_pause(pause && paused == 0);
     if (joined)
     {
         if (state == ST_TITLE)
@@ -1343,6 +1366,8 @@ void update_game(void)
         break;
 
     case ST_PLAY:
+        if (paused)
+            break;
         if (state_timer && --state_timer == 0)
             clear_row(MSG_ROW);
         if (nplay == 1 || coop)

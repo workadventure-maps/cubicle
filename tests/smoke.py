@@ -144,6 +144,24 @@ def challenger_interrupts_solo():
     assert g.peek('inmatch', 4) == [1, 1, 0, 0] and g.peek('nplay') == 2
 
 
+def pause():
+    # Start on a playing pad freezes the match and the music; Start again resumes; a newcomer's Start resumes too
+    g = start([0])
+    g.run(60)
+    assert g.loudness > 0
+    g.press(0, 'start', frames=2)
+    y = g.peek('pyy')
+    g.run(300)
+    assert g.peek('paused') == 1 and g.peek('pyy') == y and g.peek('state') == PLAY and g.loudness == 0, g.loudness
+    g.press(0, 'start', frames=2)
+    g.run(120)
+    assert g.peek('paused') == 0 and g.peek('pyy') > y and g.loudness > 0
+    g.press(0, 'start', frames=2)
+    g.press(1, 'start', frames=2)    # someone walks up to a paused solo game: a new challenger, as usual
+    g.run(3)
+    assert g.peek('paused') == 0 and g.peek('state') == RESULT
+
+
 def idle_player_stays_in():
     # nobody is put out for not touching the pad: 20 seconds later both wells still play
     g = start([0, 1])
@@ -625,6 +643,7 @@ if __name__ == '__main__':
     junk_goes_to_opponents()
     i_piece_turns_flat_against_the_wall()
     challenger_interrupts_solo()
+    pause()
     idle_player_stays_in()
     untouched_pad_sits_out_next_match()
     top_out_goes_back_to_title()

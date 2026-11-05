@@ -12,6 +12,7 @@ In your browser: https://workadventure-maps.github.io/cubicle/ (built from `main
 
 - Press **Start** to join. Alone, it's an endless score attack; a second player's Start turns it into a match.
   Players 2 to 4 need a Multitap in port 2 (snes9x: set port 2 to "Multitap").
+- **Start** during your game pauses it for everyone; Start again resumes.
 - Two modes: **Versus** (a well each) and **Open space** (one shared well, co-op). Pick one with **Left / Right**
   on the title; **Select** switches the next game's mode at any time (Shift on the cabinet's keyboard).
 - **Left / Right** move, **Down** drops faster, **Up**, **A** or **X** turns the piece, **B** or **Y** drops it at
